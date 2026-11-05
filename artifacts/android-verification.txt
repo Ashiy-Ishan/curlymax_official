@@ -1,0 +1,22 @@
+CURLYmax Android verification — 2026-11-04
+Final app: com.curlymax.app 1.0.0+1; universal debug APK; min SDK 24 / target 37.
+APK Signature Scheme v2: verified. Installation and launch: successful.
+Device: Android 17 / API 37 arm64 emulator.
+
+PASS Android guest catalog and latest-upload screen (explicit demo banner).
+PASS Guest note gate preserves video and notes tab through demo authentication.
+PASS Note create, edit, delete and empty state on Android.
+PASS Linked multiple-choice quiz, local demo 2/2 score, retry reset and saved history.
+PASS Cold persisted quiz destination resumes the same quiz after demo authentication.
+PASS Account sign-in closes auth screen; sign-out returns to guest state.
+PASS Three standalone Android integration tests. Runner reported all tests passed.
+PASS Final Flutter analysis: no issues. Three unit/widget tests passed.
+PASS Direct local-backend verification: 50 assertions. Guest and two viewer accounts isolated.
+PASS Guest Realtime channel event and missed-publication catalog fetch after reconnect.
+
+Live Google/email providers, hosted cross-device sync, FCM send/receive/taps and physical-device coverage remain unverified/configuration-dependent.
+PASS Delivered APK YouTube iframe loaded with provider controls.
+PASS Sample video started and advanced rendered video frames inside CURLYmax (software-rendered emulator).
+PASS Open in YouTube launched the installed YouTube app with the same sample video.
+
+Emulator note: hardware graphics hit Chromium EGL_BAD_CONFIG; software graphics resolved video rendering. Initial tests with compilation running concurrently also hit System UI ANR; the isolated standalone suite passed all three flow tests. No physical device was available. Fullscreen/orientation and an actually embedding-restricted upload were not separately verified.

@@ -1,0 +1,24 @@
+project_id = "curlymax"
+[api]
+enabled = true
+port = 55321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+[db]
+port = 55322
+shadow_port = 55320
+major_version = 17
+[studio]
+enabled = true
+port = 55323
+[auth]
+enabled = true
+site_url = "com.curlymax.app://login-callback/"
+additional_redirect_urls = ["com.curlymax.app://login-callback/"]
+[functions.notify-published]
+verify_jwt = false
+
+[inbucket]
+port = 55324
+[analytics]
+enabled = false
