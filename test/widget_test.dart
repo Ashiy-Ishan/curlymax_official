@@ -1,83 +1,73 @@
 import 'package:flutter/material.dart';
-import 'package:curlymax/notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:curlymax/main.dart';
+import 'package:curlymax/notifications.dart';
 import 'package:curlymax/store.dart';
 
 void main() {
-  testWidgets('Guest sees labeled catalog and latest video', (tester) async {
+  late Store store;
+  late SupabaseClient client;
+  late Notifications notifications;
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
-    final store = Store(await SharedPreferences.getInstance());
-    await tester.pumpWidget(CurlyApp(store: store));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('DEMO MODE · Sample videos & local practice data'),
-      findsOneWidget,
-    );
+    client = SupabaseClient('https://unit.test', 'public-test-key', authOptions: const AuthClientOptions(autoRefreshToken: false));
+    store = Store(await SharedPreferences.getInstance(), client: client, backendUrl: 'https://unit.test');
+    notifications = Notifications();
+  });
+  tearDown(() async {
+    store.dispose(); notifications.dispose(); await client.dispose();
+  });
+  Widget home() => MaterialApp(theme: ThemeData.dark(useMaterial3: true),
+      home: Home(key: UniqueKey(), store: store, notifications: notifications));
+
+  testWidgets('Unconfigured build gives a real setup state and no sample content', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: const ConfigurationScreen(details: 'Missing project settings')));
+    expect(find.text('This installation is not connected yet.'), findsOneWidget);
+    expect(find.textContaining('DEMO'), findsNothing);
+    expect(find.text('Continue as demo viewer'), findsNothing);
+    expect(find.bySemanticsLabel('CURLYmax app logo'), findsOneWidget);
+  });
+
+  testWidgets('Guest sees only supplied catalog content and latest upload', (tester) async {
+    store.channels = [{'id': 'c1', 'name': 'Ashiy Ish', 'handle': '@ashiy_ish'}];
+    store.sections = [{'id': 's1', 'channel_id': 'c1', 'name': 'Latest videos'}];
+    store.videos = [{'id': 'v1', 'channel_id': 'c1', 'section_id': 's1', 'title': 'Published channel upload', 'youtube_id': 'abcdefghijk'}];
+    await tester.pumpWidget(home()); await tester.pumpAndSettle();
     expect(find.text('LATEST UPLOAD'), findsOneWidget);
-    expect(find.byTooltip('Account and settings'), findsOneWidget);
+    expect(find.text('Published channel upload'), findsWidgets);
+    expect(find.textContaining('DEMO'), findsNothing);
     expect(store.signedIn, isFalse);
   });
-  test('Demo notes persist, edit, delete; scores retry and persist', () async {
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await SharedPreferences.getInstance();
-    final store = Store(prefs);
-    await store.init();
-    await expectLater(store.notes('demo-video'), throwsStateError);
-    await store.signInDemo();
-    await store.saveNote('demo-video', 'First thought');
-    final id = (await store.notes('demo-video')).single['id'];
-    await store.saveNote('demo-video', 'Revised thought', id: id);
-    expect((await store.notes('demo-video')).single['body'], 'Revised thought');
-    expect(await store.notes('demo-video-2'), isEmpty);
-    await store.deleteNote(id);
-    expect(await store.notes('demo-video'), isEmpty);
-    expect((await store.submit('demo-quiz', {'q1': 0, 'q2': 1}))['score'], 2);
-    expect((await store.submit('demo-quiz', {'q1': 1, 'q2': 0}))['score'], 0);
-    final second = Store(prefs);
-    await second.init();
-    expect(second.signedIn, isTrue);
-    expect((await second.attempts()).length, 2);
-    await second.remember({'kind': 'quiz', 'item_id': 'demo-quiz'});
-    expect(Store(prefs).pending?['item_id'], 'demo-quiz');
-    await second.signOut();
-    await expectLater(second.attempts(), throwsStateError);
-    store.dispose();
-    second.dispose();
-  });
-  testWidgets('Channel selector appears from catalog data and filters videos', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final store = Store(await SharedPreferences.getInstance());
-    await store.init();
-    Widget home() => MaterialApp(
-      theme: ThemeData.dark(useMaterial3: true),
-      home: Home(
-        key: UniqueKey(),
-        store: store,
-        notifications: Notifications(),
-      ),
-    );
-    await tester.pumpWidget(home());
-    await tester.pumpAndSettle();
-    expect(find.byType(DropdownButtonFormField<String>), findsNothing);
-    store.channels.add({
-      'id': 'tech',
-      'name': 'CURLYmax Tech',
-      'handle': '@curlymaxtech',
-    });
-    await tester.pumpWidget(home());
-    await tester.pumpAndSettle();
-    expect(find.byType(DropdownButtonFormField<String>), findsOneWidget);
-    await tester.ensureVisible(find.byType(DropdownButtonFormField<String>));
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('CURLYmax Tech').last);
-    await tester.pumpAndSettle();
+
+  testWidgets('No catalog produces an honest empty state', (tester) async {
+    await tester.pumpWidget(home()); await tester.pumpAndSettle();
     expect(find.text('Something good is on the way'), findsOneWidget);
+    expect(find.text('LATEST UPLOAD'), findsNothing);
+  });
+
+  testWidgets('Channel selector appears dynamically and filters channel content', (tester) async {
+    store.channels = [{'id':'c1','name':'Ashiy Ish','handle':'@ashiy_ish'}];
+    await tester.pumpWidget(home()); await tester.pumpAndSettle();
+    expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+    store.channels.add({'id':'c2','name':'CURLYmax Tech','handle':'@curlymaxtech'});
+    await tester.pumpWidget(home()); await tester.pumpAndSettle();
+    final selector = find.byType(DropdownButtonFormField<String>);
+    expect(selector, findsOneWidget);
+    await tester.ensureVisible(selector); await tester.tap(selector); await tester.pumpAndSettle();
+    await tester.tap(find.text('CURLYmax Tech').last); await tester.pumpAndSettle();
     expect(find.text('@curlymaxtech'), findsOneWidget);
-    store.dispose();
+    expect(find.text('Something good is on the way'), findsOneWidget);
+  });
+
+  testWidgets('Sign-in presents real Google and email controls only', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: AuthScreen(store:store))); await tester.pumpAndSettle();
+    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('Sign in with email'), findsOneWidget);
+    expect(find.byType(TextField), findsNWidgets(2));
+    expect(find.text('Continue as demo viewer'), findsNothing);
+    await tester.tap(find.text('Sign in with email')); await tester.pumpAndSettle();
+    expect(find.text('Enter an email and a password of at least 8 characters.'), findsOneWidget);
   });
 }

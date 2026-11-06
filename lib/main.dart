@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'config.dart';
+import 'brand.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,17 +19,17 @@ Future<void> main() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
-  String? configError;
-  try {
-    if (!demo) {
-      if (supabaseUrl.isEmpty || supabaseKey.isEmpty) {
-        throw StateError('Missing Supabase configuration');
-      }
-      await Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey);
+  String? configError = AppConfig.validateSupabase();
+  if (configError == null) {
+    try {
+      await Supabase.initialize(
+        url: AppConfig.supabaseUrl,
+        anonKey: AppConfig.supabaseKey,
+      );
+    } catch (_) {
+      configError =
+          'Unable to initialize the account connection. Check the public client configuration.';
     }
-  } catch (_) {
-    configError =
-        'Live configuration is missing or invalid. Supply SUPABASE_URL and SUPABASE_ANON_KEY, or build with DEMO=true.';
   }
   final store = Store(await SharedPreferences.getInstance());
   runApp(CurlyApp(store: store, configError: configError));
@@ -133,6 +136,7 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    notifications.dispose();
     store.dispose();
     super.dispose();
   }
@@ -178,17 +182,61 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
       ),
     ),
     home: widget.configError != null
-        ? Scaffold(
-            body: SafeArea(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(widget.configError!),
-                ),
-              ),
-            ),
-          )
+        ? ConfigurationScreen(details: widget.configError!)
         : Home(store: store, notifications: notifications),
+  );
+}
+
+class ConfigurationScreen extends StatelessWidget {
+  const ConfigurationScreen({super.key, required this.details});
+  final String details;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CurlymaxMark(size: 96),
+                const SizedBox(height: 24),
+                Text(
+                  'CURLYmax',
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'This installation is not connected yet.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Install a configured build from the channel owner to browse videos and sign in.',
+                  textAlign: TextAlign.center,
+                ),
+                if (kDebugMode) ...[
+                  const SizedBox(height: 24),
+                  SelectableText(
+                    details,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: accent),
+                  ),
+                  const SizedBox(height: 12),
+                  const SelectableText(
+                    'flutter run --dart-define-from-file=config/live.json',
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 }
 
@@ -301,20 +349,6 @@ class _HomeState extends State<Home> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (demo)
-                        Container(
-                          width: double.infinity,
-                          margin: const EdgeInsets.only(bottom: 24),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: .1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Text(
-                            'DEMO MODE · Sample videos & local practice data',
-                            style: TextStyle(color: accent, fontSize: 12),
-                          ),
-                        ),
                       label('WATCH. LEARN. MAKE IT YOURS.'),
                       const SizedBox(height: 12),
                       const Text(
@@ -573,9 +607,7 @@ class VideoCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        demo
-                            ? 'SAMPLE VIDEO  ·  EXPLORE & LEARN'
-                            : 'WATCH  ·  NOTES  ·  QUIZ',
+                        'WATCH  ·  NOTES  ·  QUIZ',
                         style: const TextStyle(
                           color: Colors.white54,
                           fontSize: 10,
@@ -780,6 +812,7 @@ class _VideoScreenState extends State<VideoScreen> {
                 IconButton(
                   tooltip: 'Open in YouTube',
                   onPressed: () => attempt(context, () async {
+                    await pause();
                     if (!await launchUrl(
                       Uri.parse(
                         'https://www.youtube.com/watch?v=${widget.video['youtube_id']}',
@@ -814,7 +847,7 @@ class _VideoScreenState extends State<VideoScreen> {
                 ListView(
                   padding: const EdgeInsets.all(20),
                   children: [
-                    label(demo ? 'DEMO SAMPLE' : 'ABOUT THIS VIDEO'),
+                    label('ABOUT THIS VIDEO'),
                     const SizedBox(height: 14),
                     Text(
                       widget.video['description'],
@@ -1022,95 +1055,73 @@ class _AuthScreenState extends State<AuthScreen> {
                 style: TextStyle(color: Colors.white60, height: 1.5),
               ),
               const SizedBox(height: 28),
-              if (demo) ...[
-                const Text(
-                  'DEMO MODE\nThis creates a local demo viewer. No Google or email account is contacted; notes and scores stay on this device.',
-                  style: TextStyle(color: accent, height: 1.5),
-                ),
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: busy
-                      ? null
-                      : () => run(() async {
-                          await widget.store.signInDemo();
-                        }),
-                  child: const Text('Continue as demo viewer'),
-                ),
-              ] else ...[
-                OutlinedButton.icon(
-                  onPressed: busy
-                      ? null
-                      : () => run(() async {
-                          await widget.store.db.auth.signInWithOAuth(
-                            OAuthProvider.google,
-                            redirectTo: 'com.curlymax.app://login-callback/',
+
+              OutlinedButton.icon(
+                onPressed: busy
+                    ? null
+                    : () => run(() async {
+                        await widget.store.signInWithGoogle();
+                      }),
+                icon: const Icon(Icons.account_circle_outlined),
+                label: const Text('Continue with Google'),
+              ),
+              const SizedBox(height: 24),
+              TextField(
+                controller: email,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
+                decoration: const InputDecoration(labelText: 'Email address'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: password,
+                obscureText: true,
+                autofillHints: [
+                  create ? AutofillHints.newPassword : AutofillHints.password,
+                ],
+                decoration: const InputDecoration(labelText: 'Password'),
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                onPressed: busy
+                    ? null
+                    : () => run(() async {
+                        if (!email.text.contains('@') ||
+                            password.text.length < 8) {
+                          setState(
+                            () => message =
+                                'Enter an email and a password of at least 8 characters.',
                           );
-                        }),
-                  icon: const Icon(Icons.account_circle_outlined),
-                  label: const Text('Continue with Google'),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: email,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
-                  decoration: const InputDecoration(labelText: 'Email address'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: password,
-                  obscureText: true,
-                  autofillHints: [
-                    create ? AutofillHints.newPassword : AutofillHints.password,
-                  ],
-                  decoration: const InputDecoration(labelText: 'Password'),
-                ),
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: busy
-                      ? null
-                      : () => run(() async {
-                          if (!email.text.contains('@') ||
-                              password.text.length < 8) {
+                          return;
+                        }
+                        if (create) {
+                          final hasSession = await widget.store.createAccount(
+                            email.text,
+                            password.text,
+                          );
+                          if (!hasSession && mounted) {
                             setState(
                               () => message =
-                                  'Enter an email and a password of at least 8 characters.',
-                            );
-                            return;
-                          }
-                          if (create) {
-                            final response = await widget.store.db.auth.signUp(
-                              email: email.text.trim(),
-                              password: password.text,
-                              emailRedirectTo:
-                                  'com.curlymax.app://login-callback/',
-                            );
-                            if (response.session == null && mounted) {
-                              setState(
-                                () => message =
-                                    'Check your email to confirm your account, then return to sign in.',
-                              );
-                            }
-                          } else {
-                            await widget.store.db.auth.signInWithPassword(
-                              email: email.text.trim(),
-                              password: password.text,
+                                  'Check your email to confirm your account, then return to sign in.',
                             );
                           }
-                        }),
-                  child: Text(create ? 'Create account' : 'Sign in with email'),
+                        } else {
+                          await widget.store.signInWithEmail(
+                            email.text,
+                            password.text,
+                          );
+                        }
+                      }),
+                child: Text(create ? 'Create account' : 'Sign in with email'),
+              ),
+              TextButton(
+                onPressed: busy ? null : () => setState(() => create = !create),
+                child: Text(
+                  create
+                      ? 'Already have an account? Sign in'
+                      : 'New here? Create an account',
                 ),
-                TextButton(
-                  onPressed: busy
-                      ? null
-                      : () => setState(() => create = !create),
-                  child: Text(
-                    create
-                        ? 'Already have an account? Sign in'
-                        : 'New here? Create an account',
-                  ),
-                ),
-              ],
+              ),
               if (busy) const LinearProgressIndicator(),
               if (message != null)
                 Padding(
@@ -1254,7 +1265,7 @@ class _NotesPanelState extends State<NotesPanel> {
           children: [
             const Expanded(
               child: Text(
-                demo ? 'Local demo notes' : 'Private · Only you',
+                'Private · Only you',
                 style: TextStyle(color: Colors.white54),
               ),
             ),
@@ -1433,15 +1444,6 @@ class _QuizScreenState extends State<QuizScreen> {
                     'Your score is saved. Keep exploring, keep learning.',
                     textAlign: TextAlign.center,
                   ),
-                  if (demo)
-                    const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        'DEMO · Graded locally. Live quizzes are graded on the server.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: accent),
-                      ),
-                    ),
                   const SizedBox(height: 24),
                   FilledButton.icon(
                     onPressed: () => setState(() {
@@ -1463,7 +1465,7 @@ class _QuizScreenState extends State<QuizScreen> {
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            label(demo ? 'DEMO PRACTICE QUIZ' : 'TAKE YOUR TIME'),
+            label('TAKE YOUR TIME'),
             const SizedBox(height: 12),
             Text(
               widget.quiz['title'],
@@ -1580,7 +1582,7 @@ class _AccountScreenState extends State<AccountScreen> {
   bool busy = false;
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-    animation: widget.store,
+    animation: Listenable.merge([widget.store, widget.notifications]),
     builder: (context, _) => Scaffold(
       appBar: AppBar(title: const Text('Your space')),
       body: ListView(
@@ -1603,22 +1605,17 @@ class _AccountScreenState extends State<AccountScreen> {
                   builder: (_) => AuthScreen(store: widget.store),
                 ),
               ),
-              child: Text(demo ? 'Try the demo viewer' : 'Sign in'),
+              child: const Text('Sign in'),
             ),
           const SizedBox(height: 24),
           Card(
             child: SwitchListTile(
               title: const Text('New sparks, straight to you'),
-              subtitle: Text(
-                widget.notifications.available
-                    ? 'Notify me about published videos and quizzes'
-                    : demo
-                    ? 'Unavailable in demo · Firebase setup required'
-                    : 'Firebase is not configured in this build',
-              ),
+              subtitle: Text(widget.notifications.status),
               value:
-                  widget.store.prefs.getBool('notifications_enabled') ?? false,
-              onChanged: busy
+                  widget.notifications.available &&
+                  widget.notifications.enabled,
+              onChanged: busy || !widget.notifications.available
                   ? null
                   : (value) async {
                       if (!widget.notifications.available) {
@@ -1716,7 +1713,7 @@ class _AccountScreenState extends State<AccountScreen> {
           ],
           const SizedBox(height: 32),
           const Text(
-            'CURLYmax 1.0\nVideos play through YouTube. Notes are private to your account. Quiz submissions are scored by the backend in live mode.',
+            'CURLYmax 1.0\nVideos play through YouTube. Notes are private to your account. Quiz submissions are scored securely on the server.',
             style: TextStyle(color: Colors.white38, height: 1.6, fontSize: 12),
           ),
         ],

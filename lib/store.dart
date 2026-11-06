@@ -3,21 +3,23 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'config.dart';
 
 typedef RecordData = Map<String, dynamic>;
-const demo = bool.fromEnvironment('DEMO', defaultValue: true);
-const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-const supabaseKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
+/// Live Supabase repository. Only the public catalog is cached on the device.
 class Store extends ChangeNotifier {
-  Store(this.prefs);
+  Store(
+    this.prefs, {
+    SupabaseClient? client,
+    this.backendUrl = AppConfig.supabaseUrl,
+  }) : _client = client;
   final SharedPreferences prefs;
-  SupabaseClient get db => Supabase.instance.client;
-  bool demoUser = false;
-  bool get signedIn => demo ? demoUser : db.auth.currentUser != null;
-  String get userLabel => demo
-      ? 'Demo viewer · local data'
-      : db.auth.currentUser?.email ?? 'Viewer';
+  final SupabaseClient? _client;
+  final String backendUrl;
+  SupabaseClient get db => _client ?? Supabase.instance.client;
+  bool get signedIn => db.auth.currentUser != null;
+  String get userLabel => db.auth.currentUser?.email ?? 'Viewer';
   List<RecordData> channels = [], sections = [], videos = [], quizzes = [];
   bool loading = false;
   String? error;
@@ -29,50 +31,95 @@ class Store extends ChangeNotifier {
   Completer<void>? _refreshComplete;
   VoidCallback? onAuthenticated;
 
+  void _changed() {
+    if (!disposed) notifyListeners();
+  }
+
   Future<void> init() async {
-    if (demo) {
-      demoUser = prefs.getBool('demo_user') ?? false;
-    } else {
-      final cached = prefs.getString('catalog:$supabaseUrl');
-      if (cached != null) {
-        try {
-          _assign(jsonDecode(cached) as RecordData);
-        } catch (_) {
-          /* Discard invalid cache. */
-        }
+    final cached = prefs.getString('catalog:$backendUrl');
+    if (cached != null) {
+      try {
+        _assign(jsonDecode(cached) as RecordData);
+      } catch (_) {
+        /* Ignore invalid cached catalog data. */
       }
-      authSubscription = db.auth.onAuthStateChange.listen((event) {
-        notifyListeners();
-        if (event.event == AuthChangeEvent.signedIn) onAuthenticated?.call();
-      });
-      subscription = db
-          .channel('catalog')
-          .onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            callback: (_) => refresh(),
-          );
-      subscription!.subscribe((status, e) {
-        if (status == RealtimeSubscribeStatus.subscribed) refresh();
-        if (status == RealtimeSubscribeStatus.channelError ||
-            status == RealtimeSubscribeStatus.timedOut) {
-          error = 'Live updates interrupted. Pull to refresh; reconnecting…';
-          notifyListeners();
-        }
-      });
-      retry = Timer.periodic(const Duration(seconds: 45), (_) => refresh());
     }
+    if (disposed) return;
+    authSubscription = db.auth.onAuthStateChange.listen((event) {
+      if (disposed) return;
+      _changed();
+      if (event.event == AuthChangeEvent.signedIn) onAuthenticated?.call();
+    });
+    subscription = db
+        .channel('catalog')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          callback: (_) => refresh(),
+        );
+    subscription!.subscribe((status, e) {
+      if (disposed) return;
+      if (status == RealtimeSubscribeStatus.subscribed) unawaited(refresh());
+      if (status == RealtimeSubscribeStatus.channelError ||
+          status == RealtimeSubscribeStatus.timedOut) {
+        error = 'Live updates interrupted. Pull to refresh; reconnecting…';
+        _changed();
+      }
+    });
+    retry = Timer.periodic(const Duration(seconds: 45), (_) => refresh());
     await refresh();
   }
 
   void _assign(RecordData data) {
-    channels = List<RecordData>.from(data['channels']);
-    sections = List<RecordData>.from(data['sections']);
-    videos = List<RecordData>.from(data['videos']);
-    quizzes = List<RecordData>.from(data['quizzes']);
+    final newChannels = List<RecordData>.from(data['channels']);
+    final channelIds = newChannels.map((c) => c['id']).toSet();
+    final newSections = List<RecordData>.from(
+      data['sections'],
+    ).where((s) => channelIds.contains(s['channel_id'])).toList();
+    final sectionIds = newSections.map((s) => s['id']).toSet();
+    final newVideos = List<RecordData>.from(data['videos'])
+        .where(
+          (v) =>
+              channelIds.contains(v['channel_id']) &&
+              sectionIds.contains(v['section_id']),
+        )
+        .toList();
+    final videoIds = newVideos.map((v) => v['id']).toSet();
+    final newQuizzes = List<RecordData>.from(
+      data['quizzes'],
+    ).where((q) => videoIds.contains(q['video_id'])).toList();
+    channels = newChannels;
+    sections = newSections;
+    videos = newVideos;
+    quizzes = newQuizzes;
+  }
+
+  Future<List<RecordData>> _catalogRows(
+    String table,
+    String column,
+    Object value,
+    String order, {
+    bool ascending = true,
+  }) async {
+    const pageSize = 500;
+    final all = <RecordData>[];
+    for (var offset = 0; ; offset += pageSize) {
+      final page = List<RecordData>.from(
+        await db
+            .from(table)
+            .select()
+            .eq(column, value)
+            .order(order, ascending: ascending)
+            .order('id')
+            .range(offset, offset + pageSize - 1),
+      );
+      all.addAll(page);
+      if (page.length < pageSize) return all;
+    }
   }
 
   Future<void> refresh() async {
+    if (disposed) return;
     if (loading) {
       _refreshAgain = true;
       await _refreshComplete?.future;
@@ -82,86 +129,42 @@ class Store extends ChangeNotifier {
     _refreshComplete = complete;
     loading = true;
     error = null;
-    notifyListeners();
+    _changed();
     try {
-      if (demo) {
-        channels = [
-          {'id': 'channel-demo', 'name': 'Ashiy Ish', 'handle': '@ashiy_ish'},
-        ];
-        sections = [
-          {
-            'id': 'learn',
-            'channel_id': 'channel-demo',
-            'name': 'Learn & explore',
-          },
-          {
-            'id': 'behind',
-            'channel_id': 'channel-demo',
-            'name': 'Behind the channel',
-          },
-        ];
-        videos = [
-          {
-            'id': 'demo-video',
-            'channel_id': 'channel-demo',
-            'section_id': 'learn',
-            'title': 'Small ideas. Big possibilities.',
-            'description':
-                'Demo sample: an introduction to Flutter from the Flutter team. This is placeholder content, not an upload from @ashiy_ish. Connect Supabase and publish your own links to replace it.',
-            'youtube_id': 'fq4N0hgOWzU',
-            'published_at': '2026-11-04T10:00:00Z',
-          },
-          {
-            'id': 'demo-video-2',
-            'channel_id': 'channel-demo',
-            'section_id': 'behind',
-            'title': 'Make something you’re proud of',
-            'description':
-                'Demo sample: Flutter Basic Training by Fireship. This is not an @ashiy_ish upload. Explore the player and save a private note.',
-            'youtube_id': '1xipg02Wu8s',
-            'published_at': '2026-11-03T10:00:00Z',
-          },
-        ];
-        quizzes = [
-          {
-            'id': 'demo-quiz',
-            'video_id': 'demo-video',
-            'title': 'A quick Flutter check',
-          },
-        ];
-      } else {
-        final results = await Future.wait([
-          db.from('channels').select().eq('active', true).order('position'),
-          db.from('sections').select().eq('active', true).order('position'),
-          db
-              .from('videos')
-              .select()
-              .eq('status', 'published')
-              .order('published_at', ascending: false),
-          db.from('quizzes').select().eq('status', 'published'),
-        ]).timeout(const Duration(seconds: 20));
-        _assign({
-          'channels': results[0],
-          'sections': results[1],
-          'videos': results[2],
-          'quizzes': results[3],
-        });
-        await prefs.setString(
-          'catalog:$supabaseUrl',
-          jsonEncode({
-            'channels': channels,
-            'sections': sections,
-            'videos': videos,
-            'quizzes': quizzes,
-          }),
-        );
-      }
+      final results = await Future.wait([
+        _catalogRows('channels', 'active', true, 'position'),
+        _catalogRows('sections', 'active', true, 'position'),
+        _catalogRows(
+          'videos',
+          'status',
+          'published',
+          'published_at',
+          ascending: false,
+        ),
+        _catalogRows('quizzes', 'status', 'published', 'created_at'),
+      ]).timeout(const Duration(seconds: 20));
+      if (disposed) return;
+      _assign({
+        'channels': results[0],
+        'sections': results[1],
+        'videos': results[2],
+        'quizzes': results[3],
+      });
+      await prefs.setString(
+        'catalog:$backendUrl',
+        jsonEncode({
+          'channels': channels,
+          'sections': sections,
+          'videos': videos,
+          'quizzes': quizzes,
+        }),
+      );
     } catch (_) {
       error =
           'Can’t reach CURLYmax. Check your connection and try again. Saved catalog may be out of date.';
     } finally {
       loading = false;
-      if (!disposed) notifyListeners();
+      _changed();
       if (_refreshAgain && !disposed) {
         _refreshAgain = false;
         await refresh();
@@ -183,131 +186,115 @@ class Store extends ChangeNotifier {
   }
 
   Future<void> clearPending() => prefs.remove('pending_destination');
-  Future<void> signInDemo() async {
-    demoUser = true;
-    await prefs.setBool('demo_user', true);
-    notifyListeners();
-    onAuthenticated?.call();
+  Future<void> signInWithEmail(String email, String password) async {
+    await db.auth.signInWithPassword(email: email.trim(), password: password);
+  }
+
+  Future<bool> createAccount(String email, String password) async {
+    final response = await db.auth.signUp(
+      email: email.trim(),
+      password: password,
+      emailRedirectTo: AppConfig.authRedirect,
+    );
+    return response.session != null;
+  }
+
+  Future<void> signInWithGoogle() async {
+    if (!await db.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: AppConfig.authRedirect,
+    )) {
+      throw StateError('The sign-in browser could not be opened.');
+    }
   }
 
   Future<void> signOut() async {
+    await db.auth.signOut();
     await clearPending();
-    if (demo) {
-      demoUser = false;
-      await prefs.setBool('demo_user', false);
-    } else {
-      await db.auth.signOut();
-    }
-    notifyListeners();
+    _changed();
   }
 
-  List<RecordData> _local(String key) =>
-      List<RecordData>.from(jsonDecode(prefs.getString(key) ?? '[]'));
-  Future<List<RecordData>> notes(String video) async {
+  void _requireSignIn() {
     if (!signedIn) throw StateError('Sign in required');
-    if (demo) {
-      return _local('demo_notes').where((n) => n['video_id'] == video).toList();
-    }
+  }
+
+  Future<List<RecordData>> notes(String video) async {
+    _requireSignIn();
     return List<RecordData>.from(
       await db
           .from('notes')
           .select()
           .eq('video_id', video)
-          .order('updated_at', ascending: false),
+          .order('updated_at', ascending: false)
+          .timeout(const Duration(seconds: 20)),
     );
   }
 
   Future<void> saveNote(String video, String body, {String? id}) async {
-    if (!signedIn) throw StateError('Sign in required');
-    if (demo) {
-      final rows = _local('demo_notes');
-      rows.removeWhere((n) => n['id'] == id);
-      rows.insert(0, {
-        'id': id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-        'video_id': video,
-        'body': body,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
-      await prefs.setString('demo_notes', jsonEncode(rows));
-    } else if (id == null) {
-      await db.from('notes').insert({'video_id': video, 'body': body});
-    } else {
+    _requireSignIn();
+    if (body.trim().isEmpty || body.length > 20000)
+      throw ArgumentError('Enter a note of 1–20,000 characters.');
+    if (id == null) {
       await db
           .from('notes')
+          .insert({'video_id': video, 'body': body.trim()})
+          .timeout(const Duration(seconds: 20));
+    } else {
+      final changed = await db
+          .from('notes')
           .update({
-            'body': body,
+            'body': body.trim(),
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           })
-          .eq('id', id);
+          .eq('id', id)
+          .eq('video_id', video)
+          .select('id')
+          .timeout(const Duration(seconds: 20));
+      if (changed.isEmpty)
+        throw StateError(
+          'This note is no longer available. Refresh and try again.',
+        );
     }
   }
 
   Future<void> deleteNote(String id) async {
-    if (!signedIn) throw StateError('Sign in required');
-    if (demo) {
-      final rows = _local('demo_notes')..removeWhere((n) => n['id'] == id);
-      await prefs.setString('demo_notes', jsonEncode(rows));
-    } else {
-      await db.from('notes').delete().eq('id', id);
-    }
+    _requireSignIn();
+    await db
+        .from('notes')
+        .delete()
+        .eq('id', id)
+        .timeout(const Duration(seconds: 20));
   }
 
   Future<List<RecordData>> questions(String quiz) async {
-    if (!signedIn) throw StateError('Sign in required');
-    if (demo) {
-      return [
-        {
-          'id': 'q1',
-          'prompt': 'Which language is used to build Flutter apps?',
-          'options': ['Dart', 'Python', 'SQL'],
-        },
-        {
-          'id': 'q2',
-          'prompt': 'What is Flutter used for?',
-          'options': [
-            'Editing video files',
-            'Building apps from one codebase',
-            'Hosting databases',
-          ],
-        },
-      ];
-    }
+    _requireSignIn();
     return List<RecordData>.from(
       await db
           .from('questions')
           .select('id,prompt,options,position')
           .eq('quiz_id', quiz)
-          .order('position'),
+          .order('position')
+          .timeout(const Duration(seconds: 20)),
     );
   }
 
   Future<RecordData> submit(String quiz, Map<String, int> answers) async {
-    if (!signedIn) throw StateError('Sign in required');
-    if (!demo) {
-      return Map<String, dynamic>.from(
-        await db.rpc('submit_quiz', params: {'quiz': quiz, 'answers': answers}),
-      );
-    }
-    final result = {
-      'id': DateTime.now().microsecondsSinceEpoch.toString(),
-      'quiz_id': quiz,
-      'score': (answers['q1'] == 0 ? 1 : 0) + (answers['q2'] == 1 ? 1 : 0),
-      'total': 2,
-      'submitted_at': DateTime.now().toIso8601String(),
-    };
-    final history = _local('demo_attempts')..insert(0, result);
-    await prefs.setString('demo_attempts', jsonEncode(history));
-    return result;
+    _requireSignIn();
+    return Map<String, dynamic>.from(
+      await db
+          .rpc('submit_quiz', params: {'quiz': quiz, 'answers': answers})
+          .timeout(const Duration(seconds: 20)),
+    );
   }
 
   Future<List<RecordData>> attempts() async {
-    if (!signedIn) throw StateError('Sign in required');
-    if (demo) return _local('demo_attempts');
+    _requireSignIn();
     return List<RecordData>.from(
       await db
           .from('attempts')
           .select()
-          .order('submitted_at', ascending: false),
+          .order('submitted_at', ascending: false)
+          .timeout(const Duration(seconds: 20)),
     );
   }
 
@@ -315,8 +302,8 @@ class Store extends ChangeNotifier {
   void dispose() {
     disposed = true;
     retry?.cancel();
-    authSubscription?.cancel();
-    if (subscription != null) db.removeChannel(subscription!);
+    unawaited(authSubscription?.cancel());
+    if (subscription != null) unawaited(db.removeChannel(subscription!));
     super.dispose();
   }
 }
