@@ -1,78 +1,128 @@
-# Setup and publishing walkthrough
+# CURLYmax live setup
 
-## 1. Supabase
+The app is live-only. It does not contain sample videos, a local account, local notes or local quiz grading.
 
-Create your Supabase project. Link it with `supabase link --project-ref YOUR_REF`, review the migrations, then run `supabase db push`. Or paste the two migration files in timestamp order into the Dashboard SQL editor. The migration seeds **@ashiy_ish** and one “Latest videos” section, but no fake live uploads.
+## Supabase connection
 
-Use the project URL and public anon/publishable key in `config/live.json`. Ensure `public` is exposed through the Data API and **private is not**. RLS is enabled on every public table; `private.answer_keys`, owner membership and the notification outbox are inaccessible to client roles. Realtime publication includes channels, sections, videos and quiz metadata. Questions and private user data are fetched on demand.
+Use the project's **HTTPS API URL** and **public publishable key** in `config/live.json`. A database URI starting with `postgresql://` is for server/database tools and must not be put in Flutter. For an endpoint like `db.PROJECT_REF.supabase.co`, the API URL is `https://PROJECT_REF.supabase.co`.
 
-Sign up as the owner once, find the account UUID in Authentication → Users, then in the Dashboard SQL editor:
+The public-key field is `SUPABASE_PUBLISHABLE_KEY`. Older anon JWTs are accepted under `SUPABASE_ANON_KEY`. Privileged keys are rejected by the configuration/build checks. `config/live.json` is ignored by Git and excluded from source archives.
+
+For a fresh project, open **Supabase → SQL Editor → New query**, paste the **entire** `supabase/install.sql` file, and press Run. Expected result: **Success. No rows returned.** This file runs the two migrations in one transaction. Do not run it again on an already installed database; use new versioned migrations for future changes.
+
+Check the installation:
+
+```sql
+select to_regclass('public.channels'); -- public.channels, not NULL
+select name, handle from public.channels;
+```
+
+Keep `public` exposed through the Data API. Keep `private` unexposed. Private answer keys, owner membership and the notification queue are not client-readable. Realtime publication includes channel, section, video and quiz metadata. Viewer notes and attempts are protected by ownership policies.
+
+Run `python3 scripts/check_live_backend.py` to verify the public connection and guest denial of private data. That script cannot install the schema because it deliberately uses only the app's public key.
+
+## Email sign-in and owner account
+
+In Supabase Authentication → Sign In / Providers, enable Email. Configure a production SMTP service and email-confirmation templates before accepting public viewer registrations. Add the exact redirect URL **`com.curlymax.app://login-callback/`** under Authentication → URL Configuration → Redirect URLs.
+
+Users can create an account and sign in with email/password in the app. With confirmation enabled, they confirm their email and return to sign in; a selected video/notes/quiz destination remains saved through authentication.
+
+Create your own account, find its UUID in Authentication → Users, then grant catalog publishing membership in the SQL editor:
 
 ```sql
 insert into private.owners(user_id) values ('YOUR_AUTH_USER_UUID');
 ```
 
-Only database administrators may change that membership. Dashboard administrators inherently have privileged database access; never distribute Dashboard/service credentials to viewers. The application has no publishing UI. Authenticated owners can manage catalog rows through the API; regular signed-in users cannot.
+Use a real authenticated account UUID. This private membership cannot be set through viewer-editable metadata. Dashboard administrators retain privileged SQL access; viewers never receive those credentials.
 
-## 2. Email and Google sign-in
+## Google sign-in
 
-Enable Email in Supabase Authentication → Providers and configure your SMTP/confirmation email settings. Add the exact redirect `com.curlymax.app://login-callback/` in Authentication → URL Configuration → Redirect URLs. The Android manifest handles that scheme and disables Flutter’s default deep-link router so Supabase’s app_links handler receives OAuth callbacks. See [Flutter’s plugin deep-link guidance](https://docs.flutter.dev/ui/navigation/deep-linking). Email/password sign-in and account creation are included. If email confirmation is required, confirm using the emailed link and return to sign in; the pending destination remains saved.
+Google sign-in must be enabled in the Supabase console; an Android app cannot enable it with a public key.
 
-For Google, create a **Web application OAuth client** in Google Cloud, configure the consent screen and test users, and add `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` as an authorized redirect URI. Enable Google in Supabase and enter the client ID and secret there. This app uses browser OAuth with PKCE through Supabase, so no Google secret or native Google credential is compiled into Flutter. Add the app redirect above to Supabase's allowlist. For production distribution replace the custom scheme with verified Android App Links if you need stronger redirect ownership.
+1. Open Google Cloud Console and select/create your project. You can use the Google Cloud project associated with your Firebase project.
+2. Configure the OAuth consent screen and test users while the consent app is in testing.
+3. Create an OAuth client of type **Web application**.
+4. Add `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` as an authorized redirect URI.
+5. In Supabase Authentication → Sign In / Providers → Google, enable Google and enter the OAuth client ID and secret there.
+6. Ensure `com.curlymax.app://login-callback/` is allowed in Supabase's redirect URLs, then test sign-in from Android.
 
-Reference: [Supabase Flutter OAuth](https://supabase.com/docs/reference/dart/auth-signinwithoauth), [redirect URL configuration](https://supabase.com/docs/guides/auth/redirect-urls).
+The app uses Supabase browser OAuth/PKCE. A native Google sign-in client secret is not needed in Flutter. The Android manifest routes callbacks through Supabase's app-links handler and disables Flutter's competing default deep-link router. For public production distribution, verified Android App Links can replace the custom redirect scheme.
 
-## 3. Publish one video and quiz
+References: [Supabase Flutter OAuth](https://supabase.com/docs/reference/dart/auth-signinwithoauth), [redirect URL settings](https://supabase.com/docs/guides/auth/redirect-urls), [Flutter plugin deep links](https://docs.flutter.dev/ui/navigation/deep-linking).
 
-In Dashboard → Table Editor, open `videos` and insert a **draft**:
+## Publish one video and quiz
+
+The installation creates the @ashiy_ish channel and a Latest videos section. It deliberately inserts **no videos or quizzes**.
+
+In Supabase Table Editor → `videos`, insert a row:
 
 - `channel_id`: `10000000-0000-0000-0000-000000000001`
 - `section_id`: `20000000-0000-0000-0000-000000000001`
-- `title`, `description`, `youtube_url`: your actual upload.
-- Keep `status = draft`; leave generated `youtube_id` and `published_at` alone.
+- `title`, `description`, `youtube_url`: your actual content.
+- `status`: leave as `draft` until ready.
 
-Accepted URL examples (the ID shown here is a sample):
+The database accepts normal `youtube.com/watch?v=VIDEO_ID`, `youtu.be/VIDEO_ID`, and `youtube.com/shorts/VIDEO_ID` HTTPS links. Leave generated `youtube_id` alone. Check the channel and section before changing the video to `published`; the database fills publication time. The latest manually published video is featured on Home. For backfilled older uploads, choose `published_at` deliberately.
 
-```text
-https://www.youtube.com/watch?v=fq4N0hgOWzU&t=20
-https://youtu.be/fq4N0hgOWzU?si=example
-https://youtube.com/shorts/fq4N0hgOWzU
-```
-
-Save the draft, check the channel/section and URL, then change `status` to `published`. Publication time is set by the database. The home screen's latest video follows publication time; if you backfill older uploads, set `published_at` deliberately. Videos are published manually; this app does not poll the YouTube channel API. First publication creates one notification event, even if you later unpublish/re-publish the same row.
-
-Create a draft `quizzes` row with the video UUID and a title. Insert `questions` rows with that quiz UUID, a prompt, an `options` JSON array such as `["Dart", "Python", "SQL"]`, and positions 0, 1, 2, etc. Record each generated question UUID. Answer keys live outside the exposed API. In the Dashboard SQL editor:
+Create a draft row in `quizzes` with the published video's UUID and a title. Insert `questions` rows with the quiz UUID, prompt, an `options` JSON array of 2–6 nonempty strings and positions 0, 1, 2, etc. Answer keys are zero-based and go in the private schema through the SQL editor:
 
 ```sql
 insert into private.answer_keys(question_id, correct_index)
 values ('YOUR_QUESTION_UUID', 0);
 ```
 
-Indices are **zero-based**. Repeat for every question. Now set the quiz status to `published`. The database rejects a quiz without questions, without valid keys, or whose video is not visible. Signed-in users can fetch questions, but never keys. The `submit_quiz` RPC validates every answer, grades on the server, and stores only the caller's score/total. A retry creates a separate attempt. Clients cannot write scores directly.
+Add one valid key per question, then set the quiz to `published`. The database rejects quizzes without questions/keys or without a visible published video. Published questions are frozen; unpublish the quiz before editing questions or keys. Existing attempts retain their historical score and total.
 
-To revise a quiz, set it back to draft first, edit its questions/keys, then publish it again. Existing attempts retain their original score/total. Create a new quiz row if it is a new quiz that should generate a fresh announcement. Deleting or disabling a channel/section hides its descendants. Prefer setting `active=false` or reverting to draft rather than deleting rows referenced by notes/attempts.
+Viewers submit only question-ID/option-index selections. The `submit_quiz` RPC validates, grades and creates the caller's attempt on the server. The app never calculates a score or downloads answer keys. Retries create separate attempts.
 
-## 4. Add CURLYmax Tech later
+Realtime refreshes an open app after publication. The catalog is also fetched on launch, resume and reconnect, with a recovery poll for missed events. Notes sync through Supabase and can be refreshed from another device. Failed note writes preserve an in-memory draft while the video screen remains open; offline writes are not silently queued.
 
-When the channel is ready, insert a `channels` row: `name = CURLYmax Tech`, your actual handle, `active = true`, and a higher `position`. Add one or more `sections` referencing that channel. Publish a video assigned to that channel and one of its sections. The foreign key prevents mismatched channel/section selections.
+Prefer unpublishing or setting channel/section `active=false` over deleting rows referenced by viewer notes or attempts.
 
-The app reads active channels on launch and via Realtime/reconnect. As soon as there are two, it shows the channel selector automatically. No APK release is required. You can keep a channel inactive while preparing it.
+## Add CURLYmax Tech later
 
-## 5. Firebase Android notifications
+Insert a `channels` row with name **CURLYmax Tech**, your actual handle, `active=true`, and a higher `position`. Add sections referencing that channel, then publish actual videos assigned to that channel and one of its sections.
 
-Create a Firebase project and register Android package **com.curlymax.app**. Enable the Firebase Cloud Messaging HTTP v1 API. Copy the public Android `apiKey`, `mobilesdk_app_id`, sender/project number and project ID from the Firebase console/`google-services.json` into `config/live.json` under the documented names. Flutter initializes Firebase explicitly; a Gradle Google Services plugin or committed `google-services.json` is not required.
+The live app fetches channels from the database. With two active channels, the selector appears automatically; no APK release is needed. Keep a channel inactive while preparing content. A foreign key prevents mismatching a video's channel and section.
 
-FCM auto-initialization is disabled in AndroidManifest. The user enables notifications in Your space; Android permission is requested at that point, then the app subscribes to `curlymax_public`. Disabling unsubscribes and deletes the token. A sign-out also disables notifications on this installation. Notifications work for guests who opt in. The topic is public and must never carry notes, scores, keys or private data. Use an Android device/emulator with Google Play services.
+## Firebase notifications
 
-Create a dedicated Google service account with the **Firebase Cloud Messaging API Admin** role on this project. Store its JSON only as the Edge Function secret `FCM_SERVICE_ACCOUNT_JSON`. Generate a long random `SCHEDULER_SECRET` and store it as another function secret, using the Supabase Dashboard secrets UI. Supabase provides `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the function environment. None of these server secrets go in Dart defines.
+### Create the public Android client configuration
 
-Deploy:
+1. Open Firebase Console and create a project.
+2. From Project overview, choose **Add app → Android**.
+3. Enter Android package **`com.curlymax.app`** and app nickname **CURLYmax**.
+4. Download **`google-services.json`** and save it as `config/google-services.json` in this workspace.
+5. Run:
+
+   ```sh
+   python3 scripts/configure_firebase.py
+   python3 scripts/build_android.py
+   ```
+
+The importer copies the public Android API key, app ID, sender/project number and project ID into ignored `config/live.json` and sets `FCM_ENABLED=true`. It refuses service-account JSON and checks the Android package name. Flutter initializes Firebase explicitly, so there is no need to add the Gradle Google Services plugin or commit the JSON file. Firebase Authentication is not used; sign-in belongs to Supabase.
+
+The app has FCM auto-init disabled until the viewer opts in. The notification switch asks Android permission and subscribes to `curlymax_public`. Opt-out unsubscribes and deletes the token. This topic carries public announcements only, never private notes, scores or answer keys. Devices need Google Play services for FCM.
+
+### Configure the server sender
+
+Enable the Firebase Cloud Messaging HTTP v1 API. Create a dedicated Google service account with the **Firebase Cloud Messaging API Admin** role for this project.
+
+In **Supabase → Edge Functions → Secrets**, save:
+
+- `FCM_SERVICE_ACCOUNT_JSON`: the service-account JSON, **server-side only**.
+- `SCHEDULER_SECRET`: a long random secret for the scheduled sender endpoint.
+
+Supabase supplies the function's own `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. None of these privileged values go into Flutter, `config/live.json`, Git or chat.
+
+Deploy `supabase/functions/notify-published/index.ts`:
 
 ```sh
 supabase functions deploy notify-published --no-verify-jwt
 ```
 
-JWT verification is off because the endpoint uses the explicit scheduler secret; unauthenticated calls receive 401. In Supabase Cron, schedule an HTTP POST every minute to `https://YOUR_PROJECT_REF.supabase.co/functions/v1/notify-published` with `Authorization: Bearer YOUR_SCHEDULER_SECRET`. Keep the bearer value in Vault, not in checked-in SQL. If using SQL, enable `pg_cron` and `pg_net`, create Vault secrets named `curlymax_worker_url` and `curlymax_scheduler_secret`, then:
+The endpoint verifies its own scheduler bearer secret. In Supabase Cron, schedule an HTTP POST every minute to `https://YOUR_PROJECT_REF.supabase.co/functions/v1/notify-published` with the scheduler Authorization header. Store secrets in Vault, not checked-in SQL.
+
+Enable `pg_cron`/`pg_net` and create Vault secrets named `curlymax_worker_url` and `curlymax_scheduler_secret`, then schedule:
 
 ```sql
 select cron.schedule('curlymax-publications', '* * * * *', $$
@@ -85,10 +135,29 @@ select cron.schedule('curlymax-publications', '* * * * *', $$
 $$);
 ```
 
-The worker atomically claims up to 50 visible pending publication events. Parallel workers cannot claim the same event. It makes **one send attempt per event**, uses event IDs for Android tags/collapse keys, and deduplicates foreground notifications locally. FCM cannot guarantee delivery or exactly-once presentation. A network timeout may mean delivery is ambiguous; failed/dispatching events require operator review in `private.notification_outbox`. There are no blind retries that could create duplicate alerts. If a worker dies after claiming but before sending, that alert may be missed. Fix configuration before publishing, and monitor the queue. You may deliberately reset a failed row to pending after determining it was not delivered; that is an operator action, not automatic retry.
+First publication creates one durable outbox event per video/quiz. Re-publishing the same row does not create another event. Parallel workers cannot claim an event twice. The worker makes one FCM send attempt and uses an event ID for Android tagging/collapse and foreground deduplication. FCM cannot promise exactly-once delivery; ambiguous timeouts are not blindly retried. Monitor `private.notification_outbox` for failed/stranded events and review them before deliberate retries.
 
-Reference: [Flutter FCM setup](https://firebase.google.com/docs/cloud-messaging/flutter/get-started), [foreground/background/tap behavior](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages).
+References: [FCM Flutter setup](https://firebase.google.com/docs/cloud-messaging/flutter/get-started), [receive messages and notification taps](https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages).
 
-## 6. Live acceptance checklist
+## App icon
 
-Use a test Supabase/Firebase project first. On two Android installations sign in to the same viewer account and check note synchronization after refresh; sign in as another account and confirm isolation. Test guest → quiz and guest → notes destinations through Google and email, including process restart. With the app open, publish a video/quiz; check Realtime. Disable network, publish elsewhere, reconnect and check catch-up. Opt in to notifications, publish new rows, and tap alerts with the app foregrounded, backgrounded and terminated. Check embedding-restricted, private, deleted and Shorts videos through the fallback. Run the supplied direct API test locally, then adapt it to test accounts/fixtures in your staging environment before release.
+The existing dark-and-lime **C/play** artwork is retained. Android resources:
+
+- `android/app/src/main/res/drawable/ic_curlymax_foreground.xml`: adaptive foreground artwork.
+- `android/app/src/main/res/drawable/ic_curlymax_monochrome.xml`: Android 13+ themed-icon mask.
+- `android/app/src/main/res/drawable/ic_curlymax.xml` and `mipmap-anydpi/ic_curlymax_launcher.xml`: legacy complete artwork.
+- `mipmap-anydpi-v26/ic_curlymax_launcher.xml` and `mipmap-anydpi-v33/ic_curlymax_launcher.xml`: adaptive icon definitions.
+- `values-v31/styles.xml` / `values-night-v31/styles.xml`: Android 12+ startup screen.
+- `lib/brand.dart`: matching in-app mark used by the setup screen.
+
+The manifest uses `@mipmap/ic_curlymax_launcher` for both icon and roundIcon. When replacing the logo later, update the foreground, monochrome and legacy artwork together. Keep the important artwork within the adaptive icon's safe area. See [Android's adaptive icon design guidance](https://codelabs.developers.google.com/design-android-launcher).
+
+## Acceptance before public distribution
+
+Test real Google/email callbacks on Android, email confirmation and SMTP, two-account note/attempt isolation, cross-device notes, server quiz grading/retry, Realtime publication while open and reconnect catch-up. Test FCM foreground/background/terminated taps to a video and a quiz, retaining sign-in destinations. Check embedding-restricted, private, deleted and Shorts video fallback, fullscreen and orientation on physical devices.
+
+The source includes a real-backend Android test (`integration_test/live_test.dart`) and an isolated local fixture runner (`scripts/run_live_android_test.py`). Mock HTTP fixtures exist only in unit tests; they are never an app mode. The current verification record distinguishes tests run from console/device checks still pending.
+
+## Mac owner dashboard
+
+The separate Flutter browser application is in [`dashboard/`](../dashboard/README.md). Follow its README to install the owner-only SQL upgrade, grant your account owner access and run `python3 dashboard/scripts/run.py`. It manages channels, sections, videos, quizzes/questions/answer keys and displays notification status.

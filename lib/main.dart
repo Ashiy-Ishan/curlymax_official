@@ -1713,7 +1713,7 @@ class _AccountScreenState extends State<AccountScreen> {
           ],
           const SizedBox(height: 32),
           const Text(
-            'CURLYmax 1.0\nVideos play through YouTube. Notes are private to your account. Quiz submissions are scored securely on the server.',
+            'CURLYmax 1.1\nVideos play through YouTube. Notes are private to your account. Quiz submissions are scored securely on the server.',
             style: TextStyle(color: Colors.white38, height: 1.6, fontSize: 12),
           ),
         ],

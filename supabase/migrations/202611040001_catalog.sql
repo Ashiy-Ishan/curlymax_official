@@ -134,7 +134,7 @@ create policy section_owner on public.sections for all to authenticated using(pu
 create policy video_owner on public.videos for all to authenticated using(public.is_owner()) with check(public.is_owner());
 create policy quiz_owner on public.quizzes for all to authenticated using(public.is_owner()) with check(public.is_owner());
 create policy question_owner on public.questions for all to authenticated using(public.is_owner()) with check(public.is_owner());
-revoke all on all tables in schema public from anon,authenticated;
+revoke all on public.channels,public.sections,public.videos,public.quizzes,public.questions,public.notes,public.attempts from anon,authenticated;
 grant select on public.channels,public.sections,public.videos,public.quizzes to anon,authenticated;
 grant select on public.questions,public.attempts to authenticated;
 grant select,insert,update,delete on public.notes to authenticated;

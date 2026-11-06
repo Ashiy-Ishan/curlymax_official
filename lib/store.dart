@@ -159,6 +159,10 @@ class Store extends ChangeNotifier {
           'quizzes': quizzes,
         }),
       );
+    } on PostgrestException catch (exception) {
+      error = {'PGRST205', '42P01'}.contains(exception.code)
+          ? 'The channel library is still being set up. Please try again later.'
+          : 'Can’t reach CURLYmax. Check your connection and try again. Saved catalog may be out of date.';
     } catch (_) {
       error =
           'Can’t reach CURLYmax. Check your connection and try again. Saved catalog may be out of date.';
@@ -232,8 +236,9 @@ class Store extends ChangeNotifier {
 
   Future<void> saveNote(String video, String body, {String? id}) async {
     _requireSignIn();
-    if (body.trim().isEmpty || body.length > 20000)
+    if (body.trim().isEmpty || body.length > 20000) {
       throw ArgumentError('Enter a note of 1–20,000 characters.');
+    }
     if (id == null) {
       await db
           .from('notes')
@@ -250,10 +255,11 @@ class Store extends ChangeNotifier {
           .eq('video_id', video)
           .select('id')
           .timeout(const Duration(seconds: 20));
-      if (changed.isEmpty)
+      if (changed.isEmpty) {
         throw StateError(
           'This note is no longer available. Refresh and try again.',
         );
+      }
     }
   }
 

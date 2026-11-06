@@ -1,0 +1,18 @@
+CURLYmax 1.1.0+2 — live-only verification — 2026-11-06
+
+PASS Flutter analysis: no issues.
+PASS 14 unit/widget tests (real repository HTTP contracts, config/security checks, UI).
+PASS Universal Android test APK built with the provided public Supabase client configuration.
+PASS APK Signature Scheme v2 verified; min SDK 24 / target 37.
+PASS APK installed and launched on Android API 37 arm64 emulator.
+PASS Hosted public API: four catalog tables available; guests denied private data and grading/worker RPCs (9 checks).
+PASS Host Supabase Dart client: real catalog reads return one channel/section, zero published videos/quizzes.
+
+Firebase client update: imported project curlymax-13d7d for com.curlymax.app and rebuilt APK with FCM_ENABLED=true. This Firebase-enabled rebuild has not yet been installed/runtime-tested. Earlier Android checks below apply to the preceding build of the same app source.
+Owner configuration pending: Google provider disabled; FCM server credentials, sender deployment and delivery verification.
+Authenticated hosted sign-in, note sync, quiz submission, cross-account ownership and notification delivery have not been claimed as Android-tested in this version.
+PASS Emulator DNS corrected with runtime-only DNS server settings; Android loads the real @ashiy_ish channel and Latest videos section. Empty state matches the real zero-video catalog.
+PASS The native dark/lime C/play startup icon is displayed.
+PASS Real SDK guest Realtime subscription established. Publication/reconnect event delivery was not exercised in the hosted project.
+
+Initial emulator DNS failure was an environment issue; the host SDK and API worked throughout. No endpoint/key or transport security was weakened to bypass it.

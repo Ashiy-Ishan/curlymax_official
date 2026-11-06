@@ -1,43 +1,44 @@
-# Verification record
+# CURLYmax 1.1 verification
 
-Verified on **4 November 2026**. No hosted Supabase, Google OAuth or Firebase credentials were supplied. The deliverable defaults to visibly labeled **demo mode**. Backend checks use an isolated local Supabase stack, not a hosted production project.
+Date: **6 November 2026**. This record applies to the **live-only** 1.1.0+2 app.
 
-## Automated source and backend checks
+## Completed
 
 | Check | Result | Evidence |
 |---|---|---|
-| Flutter static analysis | Passed, no issues | `artifacts/flutter-analyze.txt` |
-| Flutter unit/widget tests | 3 passed: guest catalog/latest, demo note/score persistence and CRUD/retry, dynamic second-channel selector/filter | `artifacts/flutter-tests.txt` |
-| Direct Auth/REST security tests | 50 assertions passed as a guest, user A, user B, and a database-appointed owner | `artifacts/backend-verification.txt` |
-| Realtime and catch-up | Guest received a newly added channel over WebSocket; post-reconnect guest fetch found a publication missed while disconnected | `artifacts/realtime-verification.txt` |
-| SQL migrations | Both applied successfully from a clean local PostgreSQL 17 database | `supabase/migrations/` |
+| Flutter static analysis | No issues | `artifacts/live-flutter-analyze.txt` |
+| Unit/widget tests | 14 passed | `artifacts/live-flutter-tests.txt` |
+| Universal Android APK | Built successfully; package `com.curlymax.app`, version 1.1.0+2 | `artifacts/live-android-build.txt` |
+| APK signature | v2 signature verified | `artifacts/live-apk-signature.txt` |
+| Android manifest | Minimum API 24, target API 37 | `artifacts/live-apk-manifest.txt` |
+| Hosted public API | Four catalog tables respond; guests denied questions, notes, attempts and privileged RPCs: 9 checks passed | `artifacts/live-backend-verification.txt` |
+| Real Supabase Dart SDK on host | Queries succeed against the configured project; one visible channel and section, no published videos/quizzes at verification time | `artifacts/live-sdk-verification.txt` |
+| Android install/start | APK installed and launched on API 37 arm64 emulator | Native ADB install/version check before the Firebase client rebuild |
+| Live Android catalog | Actual @ashiy_ish channel and Latest videos section loaded; no sample content | `artifacts/live-android-home.png` |
+| Realtime readiness | Guest subscription established successfully using the real SDK | `artifacts/live-sdk-verification.txt` |
+| App logo | Native dark/lime C/play startup icon displayed | `artifacts/live-android-icon.png` |
+| Python helpers | Build, public backend check, Firebase importer, local integration runner and source packager parse successfully | Python AST check |
 
-Direct API checks include draft and parent visibility, question authentication, inaccessible answer keys, note read/edit/delete ownership in both directions, owner-spoof rejection, immutable attempts, server grading and retry, incomplete/null-answer rejection, owner publishing, frozen published questions, unauthorized worker rejection, republish deduplication, concurrent worker claims, service-only completion and no re-claim of sent events. The notification transport itself was not called with a real service account.
+Unit tests cover public-key/endpoint validation, rejection of privileged keys, strict notification destination parsing, guest private-data gates, calling the server grading RPC and using its returned score, note requests without forged owner IDs, failed edits of deleted notes, published catalog/cache/offline behavior, persisted navigation, real sign-in controls and dynamic channel selection. HTTP fixtures exist only inside tests.
 
-## Android verification
+The app contains no runtime demo switch, sample videos/questions, local account creation, local private-note store or client-side grading. Supabase Auth supplies real sessions. The public catalog is cached for offline browsing; private data comes from the server.
 
-The final universal APK built successfully, passed `apksigner verify` (v2 signature), and installed and launched on an Android 17 / API 37 **arm64 emulator**. Package: `com.curlymax.app`, version 1.0.0+1, minimum API 24, target API 37. The APK includes arm64-v8a, armeabi-v7a and x86_64 native libraries and is debug-signed for testing.
+## Service configuration status
 
-Three Android flow tests passed using a standalone integration APK with Gradle stopped (`artifacts/android-runtime-tests.txt` in the workspace; clean summary in `artifacts/android-verification.txt`):
+- The provided public key and HTTPS endpoint connect successfully.
+- The user applied the SQL setup; required live catalog tables now respond and guest private access is denied.
+- Email sign-in provider is enabled. Real email confirmation/SMTP delivery and an authenticated hosted viewer flow were not exercised.
+- Google provider is **disabled** in Supabase. Owner console configuration is required before Google sign-in can work.
+- Firebase Android client configuration for `curlymax-13d7d` matches `com.curlymax.app` and has been imported. The delivered APK was rebuilt with `FCM_ENABLED=true`. Both local configuration files are excluded from Git and the source archive. No service-account secret is in the app. Firebase initialization, device registration and notification delivery have not yet been verified on Android; the server sender still requires credentials and deployment.
 
-1. Guest catalog/latest → gated notes → demo authentication → return to the same video's notes → create, edit and delete a note → linked quiz → 2/2 score → retry resets answers → saved score history.
-2. A persisted cold-start quiz destination → authentication → that same quiz. This simulates the common destination path; it is **not** a real FCM notification test.
-3. Account sign-in dismisses the auth screen and account sign-out returns to guest state.
+## Android runtime and remaining acceptance
 
-All were in **demo mode**. They verify Android UI/routing and local persistence, not Google/email providers, cross-device synchronization or server grading on Android. Server grading and ownership were separately verified through direct calls to local Supabase.
+The emulator initially could not resolve the Supabase hostname (`ping: unknown host`), while both host HTTPS checks and the real Dart SDK succeeded. The app displayed its offline/loading behavior. Restarting only the test emulator with explicit DNS servers (1.1.1.1 and 8.8.8.8) resolved the issue. Android then loaded the real @ashiy_ish channel and Latest videos section and displayed the correct empty state because no videos are published. The app's HTTPS endpoint/key were not altered to work around a test-device network failure.
 
-Initial runs with compilation and the emulator running together hit resource pressure and an Android System UI ANR on this 8 GB Mac. The final successful run separated compilation from runtime and used hardware graphics. The final project limits Gradle to two workers and a 3 GB heap. Static analysis and all three unit/widget tests also passed after the final source changes.
+The retained dark/lime C/play icon was observed on the actual native startup screen and now has an adaptive Android 8+ foreground/background, a monochrome Android 13+ mask, round-icon registration, legacy artwork and an Android 12+ startup screen. The resource definitions compile in the APK. Physical launcher/theme coverage remains to be checked.
 
-Home-screen layout was inspected in the actual delivered APK; see `artifacts/android-home.png`. The YouTube iframe loaded, the sample video started and video frames advanced inside CURLYmax under the emulator's software renderer; see `artifacts/android-player.png` and `artifacts/android-playback.png`. “Open in YouTube” launched the installed YouTube app with the same Introducing Flutter video. YouTube then showed its own notification permission prompt; that permission was not granted.
+Actual new-version playback, restricted embedding/Shorts fallback, fullscreen/orientation, real Google/email callbacks, authenticated hosted notes/attempt ownership, cross-device sync, live Realtime publication/reconnect and FCM send/foreground/background/terminated taps remain acceptance items. The current catalog has no published videos or quizzes, so video/quiz acceptance requires publishing your own content first.
 
-The emulator's hardware graphics mode caused a Chromium `EGL_BAD_CONFIG` failure during the media check; switching to software graphics resolved it. This is a test-environment limitation to keep in mind when choosing emulator graphics. Physical-device playback, fullscreen/orientation coverage and a specifically embedding-restricted upload still need acceptance testing.
+`integration_test/live_test.dart` and `scripts/run_live_android_test.py` provide real Supabase Auth/RLS Android coverage using temporary LOCAL fixtures. That suite was prepared for this version but was not claimed as run against the hosted project. It requires a running local stack and an Android emulator. The earlier local direct permission suite can be rerun separately; no additional cloud CLI/database changes were made by the agent.
 
-## Requires live configuration or further acceptance testing
-
-- Hosted Google browser OAuth and email confirmation/SMTP, including provider redirects on Android.
-- Cross-device notes against hosted Supabase and Realtime recovery over an actual mobile connection. Local backend behavior was tested directly; it does not prove hosted/mobile behavior.
-- FCM service-account authorization, Android permission/topic delivery and taps in foreground/background/terminated states. The worker's unauthorized endpoint and service-role queue RPCs were tested; no real alert was sent.
-- Actual @ashiy_ish uploads and their embedding policies. Demo uses explicitly identified third-party Flutter learning samples.
-- Physical-device coverage, private Play release signing and store distribution.
-
-Run the live acceptance checklist in `docs/SETUP.md` after supplying project configuration. Demo account entry and local grading do not verify Google/email authentication or server-side grading on Android; server grading was separately verified through real REST calls against local Supabase.
+See `docs/SETUP.md` for publishing, Google, Firebase and server sender steps. Configured APK: `artifacts/CURLYmax-live.apk`.

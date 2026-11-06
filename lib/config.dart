@@ -41,8 +41,9 @@ abstract final class AppConfig {
     if (publicKey.startsWith('sb_secret_')) {
       return 'Use a public publishable/anon key. A Supabase secret key must never be included in the app.';
     }
-    if (publicKey.startsWith('sb_publishable_') && publicKey.length > 20)
+    if (publicKey.startsWith('sb_publishable_') && publicKey.length > 20) {
       return null;
+    }
     try {
       final parts = publicKey.split('.');
       if (parts.length == 3 && parts[2].isNotEmpty) {

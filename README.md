@@ -1,63 +1,68 @@
 # CURLYmax
 
-Flutter/Dart Android companion for **@ashiy_ish**, with Supabase PostgreSQL/Auth/Realtime and an FCM publication worker. Material 3, dark surfaces, lime accent. The default build is an explicitly labeled **demo**; no live backend credentials were supplied.
+A **live-only Flutter/Dart Android app** for **@ashiy_ish**, backed by Supabase PostgreSQL, Auth and Realtime. There is no demo switch, sample catalog, local account or client-side quiz grading. Videos, quizzes, notes and scores come from your Supabase project.
 
-## Run and install
+## Run the app
 
-Put Flutter on your PATH first. On this Mac the build SDK is at `/tmp/curlymax-flutter`; `export PATH="/tmp/curlymax-flutter/bin:$PATH"` enables it for this shell. That location is temporary, so install the tested Flutter version permanently for ongoing development.
+Use Flutter **3.47.9** / Dart **3.13.7**, Android Studio's bundled JDK **25**, and the Android SDK. The Android minimum is API 24 and target is API 37. Package name: **com.curlymax.app**. Version: **1.1.0+2**.
 
-Tested toolchain: Flutter **3.47.9**, Dart **3.13.7**, Android compile/target SDK **37**, min SDK **24**, JDK **25** (Android Studio bundled JBR). Use the committed `pubspec.lock` and Gradle wrapper.
+Your public Supabase settings go in ignored `config/live.json`. Copy `config/live.example.json` when setting up another checkout; use a public publishable/anon key, never a database connection string, service-role key or `sb_secret_` key.
 
 ```sh
 flutter pub get
-flutter run --dart-define=DEMO=true
-flutter build apk --debug --dart-define=DEMO=true
-adb install -r artifacts/CURLYmax-demo.apk
+flutter run --dart-define-from-file=config/live.json
+python3 scripts/build_android.py
+adb install -r artifacts/CURLYmax-live.apk
 ```
 
-The APK is debug-signed for testing, not Play Store release signing. Demo notes, account and scores persist on one device. Demo quizzes grade locally with sample answers. Sample videos are Flutter learning content by other creators, **not @ashiy_ish uploads**. Demo mode never contacts Supabase or registers for FCM; YouTube thumbnails and playback still require internet.
+The build script creates a universal **debug-signed Android test APK** at `artifacts/CURLYmax-live.apk`. Private Play Store release signing is a separate owner setup step. A build without client configuration displays a connection/setup state; it never substitutes sample content. CI's unconfigured artifact is only a compilation check.
 
-For live mode, copy `config/live.example.json` to ignored `config/live.json`, fill in public client settings, then:
+## Backend and first content
+
+In a fresh Supabase project, run **`supabase/install.sql`** once in the Dashboard SQL editor. It installs the two versioned migrations, RLS, private server grading, publication outbox and the initial @ashiy_ish channel/section. It does **not** add sample videos or quizzes. Existing projects managed with the CLI can instead apply the versioned migrations through their normal migration workflow.
+
+An empty library is expected until you publish your actual YouTube links through the dashboard. The [setup and publishing walkthrough](docs/SETUP.md) covers your first video and quiz, Google sign-in, Firebase, and adding CURLYmax Tech without an app release.
 
 ```sh
-flutter build apk --debug --dart-define-from-file=config/live.json
+python3 scripts/check_live_backend.py
 ```
 
-Set `FCM_ENABLED` to `false` if Firebase is not configured yet. Never put a Supabase service-role/secret key, Google OAuth secret, or Firebase service-account private key in that file or the app. Public anon/publishable keys are intended for clients; RLS provides authorization.
+This checks your configured project's public catalog and denial of guest access to private data/RPCs. It prints no keys and creates no viewer accounts or catalog rows.
 
-## What is included
+## App logo
 
-- Channel/section catalog from the database; channel selector appears when multiple active channels exist. Latest manually published video is featured per selected channel.
-- Guest YouTube iframe playback and always-visible “Open in YouTube” fallback.
-- Google browser OAuth and email/password Supabase Auth. Persisted video/notes/quiz destination resumes after authentication, including process restart.
-- Private per-video note CRUD, server-scored MCQs, retries and score history.
-- Realtime invalidation, launch/resume/reconnect fetch, 45-second recovery poll and a public catalog cache. Offline note writes and quiz submissions show errors and require retry; they are not silently queued.
-- Android opt-in notifications, foreground notifications and background/cold-start destination routing. Topic contains only public publication announcements.
-- SQL migrations, private grading keys, RLS, durable publication outbox and authenticated Edge Function sender.
+The dark-and-lime **C/play** mark is installed as the Android launcher icon, startup icon and themed monochrome icon. Its main adaptive foreground is `android/app/src/main/res/drawable/ic_curlymax_foreground.xml`. See [app-icon locations](docs/SETUP.md#app-icon) before replacing the artwork so legacy and in-app branding stay consistent.
 
-See [setup and publishing walkthrough](docs/SETUP.md), [verification record](docs/VERIFICATION.md), and [architecture](docs/ARCHITECTURE.md).
+## Notifications
 
-## Verification commands
+Until Firebase is configured, `FCM_ENABLED` may be `false`; browsing, sign-in, notes and quizzes still use Supabase. To enable notifications:
+
+1. Create a Firebase project and add an Android app named `com.curlymax.app`.
+2. Download its **public Android** `google-services.json` to ignored `config/google-services.json`.
+3. Run `python3 scripts/configure_firebase.py`, then rebuild the app.
+4. Configure the server sender and scheduled job as explained in [setup](docs/SETUP.md#firebase-notifications).
+
+Google OAuth secrets and Firebase service-account credentials stay in the Supabase/Firebase consoles or server secrets. They never belong in Flutter configuration.
+
+## Checks
 
 ```sh
 flutter analyze
 flutter test
-flutter test integration_test/demo_test.dart -d emulator-5554 --dart-define=DEMO=true
-supabase start
-python3 scripts/verify_backend.py
-node scripts/verify_realtime.mjs
+python3 scripts/check_live_backend.py
 ```
 
-For an emulator on a memory-limited machine, build the integration APK first, stop Gradle, then run it separately:
+Unit tests use isolated HTTP fixtures, not a special application mode. They verify real repository request shapes, server-only grading, guest gates, configuration/key validation, offline catalog behavior and UI states. The app contains no test accounts or answers.
+
+For a real local Supabase/Auth/RLS Android test, start this project's local backend and an arm64 Android emulator, then run:
 
 ```sh
-flutter build apk --debug --target=integration_test/demo_test.dart --target-platform=android-arm64 --dart-define=DEMO=true
-cp build/app/outputs/flutter-apk/app-debug.apk /tmp/CURLYmax-tests.apk
-(cd android && ./gradlew --stop)
-# Start your emulator/device, then:
-flutter drive --no-pub --driver=test_driver/integration_test.dart --target=integration_test/demo_test.dart --use-application-binary=/tmp/CURLYmax-tests.apk -d emulator-5554
+supabase start
+python3 scripts/run_live_android_test.py emulator-5554
 ```
 
-Use the correct device ID/ABI for your hardware. Keep the deliverable app APK separate from this test APK, which runs the test suite rather than the normal app entrypoint.
+The runner is restricted to the local stack on port 55321. It creates a temporary confirmed test account and isolated video/quiz, grades through the real server RPC, checks notes in the database, and removes its fixtures afterward. It never runs against your hosted project. Keep integration APKs separate from the normal app APK.
 
-The backend test runs against **only** `http://127.0.0.1:55321`, creates two temporary confirmed accounts and isolated fixtures, calls real Auth/REST endpoints, and removes its fixtures. Docker and the Supabase CLI are required. The Realtime socket check also needs Node.js 22 or later. Local Supabase ports use 55321–55324 to avoid an existing project. Do not run reset commands against another project.
+The previous direct local backend permission suite remains available as `python3 scripts/verify_backend.py`; the guest Realtime check is `node scripts/verify_realtime.mjs` (Node 22+).
+
+Read [the current verification record](docs/VERIFICATION.md) for checks actually run and remaining console/device acceptance work.

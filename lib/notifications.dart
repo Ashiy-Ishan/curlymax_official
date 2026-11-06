@@ -9,13 +9,15 @@ import 'config.dart';
 import 'store.dart';
 
 RecordData? notificationDestination(Map<String, dynamic> data) {
-  if (!{'video', 'quiz'}.contains(data['kind']) || data['item_id'] is! String)
+  if (!{'video', 'quiz'}.contains(data['kind']) || data['item_id'] is! String) {
     return null;
+  }
   final id = data['item_id'] as String;
   if (!RegExp(
     r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-  ).hasMatch(id))
+  ).hasMatch(id)) {
     return null;
+  }
   return {'kind': data['kind'], 'item_id': id.toLowerCase()};
 }
 
@@ -85,8 +87,9 @@ class Notifications extends ChangeNotifier {
             ),
           );
       final launch = await local.getNotificationAppLaunchDetails();
-      if (launch?.didNotificationLaunchApp == true)
+      if (launch?.didNotificationLaunchApp == true) {
         _openPayload(launch?.notificationResponse?.payload);
+      }
       if (_disposed) return;
       _subscriptions.add(
         FirebaseMessaging.onMessageOpenedApp.listen((m) => _open(m.data)),
@@ -131,8 +134,9 @@ class Notifications extends ChangeNotifier {
         !enabled ||
         event == null ||
         _displaying.contains(event) ||
-        notificationDestination(message.data) == null)
+        notificationDestination(message.data) == null) {
       return;
+    }
     _displaying.add(event);
     try {
       final prefs = await SharedPreferences.getInstance();

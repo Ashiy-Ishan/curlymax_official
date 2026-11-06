@@ -1,32 +1,34 @@
-# Architecture and security boundaries
+# Architecture and security
 
-Flutter talks to Supabase using only the public project key and, after login, the viewer JWT. RLS is the authorization boundary. The catalog is public only when its video, channel and section are visible. Quiz metadata is public so guests can discover it; question rows require authentication. Notes are owned by `auth.uid()`. Attempts are created only through `submit_quiz`; direct score writes are revoked.
+CURLYmax has one data path: **Supabase**. The Flutter app contains no sample catalog, local account, local note store, local score calculation or answer keys. Missing client configuration produces a setup screen rather than invented data.
+
+`lib/config.dart` reads public build settings, validates the HTTPS endpoint, and rejects service-role/secret keys. `config/live.json` and Firebase's public client JSON are ignored by Git and source packaging. Privileged notification credentials belong only to the server.
+
+`lib/store.dart` queries the real catalog, restores Supabase Auth sessions, stores viewer notes through the Data API and submits selections through the server grading RPC. Only public catalog metadata and pending navigation destinations are cached in preferences. Catalog pagination avoids silently stopping at the Data API's row limit. Launch, resume, Realtime reconnect, manual refresh and a recovery poll fetch current data. Failed queries preserve an existing cached catalog with a clear status; missing schema has its own setup status.
+
+`lib/main.dart` provides the Material 3 dark UI and navigation. A guest's video/notes/quiz destination is persisted before authentication. After sign-in the catalog is fetched again and the target resolved; deleted/unpublished targets are rejected. Email/password and Google browser OAuth use Supabase Auth. YouTube playback uses the official iframe API through youtube_player_iframe, with a persistent external YouTube fallback. Mutating notes exposes progress and preserves failed drafts while the screen remains open.
+
+`lib/notifications.dart` handles Firebase initialization, explicit opt-in, Android permission, topic subscriptions, foreground notifications and background/cold-start taps. Message targets must be video/quiz UUIDs, not URLs. Listeners are disposed with the app, configuration readiness updates the account screen, and foreground duplicate event IDs are suppressed.
 
 ```mermaid
 flowchart LR
-  A[Flutter Android] -->|public key + optional viewer JWT| B[Supabase Auth / REST / Realtime]
-  B --> C[Public catalog with RLS]
+  A[Flutter Android] -->|public key + viewer JWT| B[Supabase Auth / REST / Realtime]
+  B --> C[Published catalog with RLS]
   B --> D[Viewer-owned notes and attempts]
   B -->|submit_quiz RPC| E[Private answer keys]
-  F[Owner / Supabase Dashboard] --> C
-  C -->|first publication trigger| G[Private notification outbox]
-  H[Cron with scheduler secret] --> I[Edge Function]
-  I -->|service role, atomic claim| G
-  I -->|server service-account OAuth| J[FCM public topic]
-  J -->|opt-in alert and item ID| A
-  A --> K[YouTube embedded player / external fallback]
+  F[Owner / Dashboard] --> C
+  C -->|first-publication trigger| G[Private outbox]
+  H[Cron + scheduler secret] --> I[Edge Function]
+  I -->|service-only atomic claim| G
+  I -->|server OAuth| J[FCM public topic]
+  J -->|opt-in item destination| A
+  A --> K[YouTube iframe / external fallback]
 ```
 
-`lib/store.dart` is the demo/live repository and catalog synchronization layer. Public catalog cache survives network loss; notes and quizzes require a successful backend request in live mode. Launch, Android resume, Realtime subscription/re-subscription, pull-to-refresh and a recovery poll fetch the catalog. Refreshes are serialized with a trailing refresh if another event arrives mid-fetch.
+PostgreSQL is the authorization boundary. Guests can read only visible published catalog content; question rows require authentication. Notes and attempts are isolated by `auth.uid()`. Direct attempt writes are revoked; only `submit_quiz` can grade/store scores for the caller. Owner membership lives in a private table, not user-editable metadata. Security-definer functions use an empty search path and qualified object names. Answer keys and notification claims are unavailable to client roles.
 
-`lib/main.dart` owns routing, Material 3 screens and persistent destinations. A pending destination stores item IDs and target tab before authentication; after login the catalog is fetched again and the published destination is resolved. Deleted/unpublished items produce an unavailable message. Reconnection errors retain the destination for retry. OAuth PKCE is handled by Supabase Flutter. The route survives Android process death via preferences.
+Published questions are frozen until their quiz is put back in draft. Historical attempts retain score/total and do not expose raw answers or keys. Unlimited retries can let a determined viewer infer answers from aggregate scores; they do not expose a downloadable answer-key endpoint.
 
-`lib/notifications.dart` configures the Android channel, opt-in topic subscription and FCM tap handlers. Foreground messages are displayed with local notifications; the FCM SDK displays notification payloads while backgrounded/terminated. Both resolve through the same destination coordinator. No arbitrary URL from a message is executed: IDs resolve through the published catalog. Notifications do not require a signed-in viewer; quizzes reached through them do.
+The outbox is unique by `(kind,item_id)` and claims work atomically with `FOR UPDATE SKIP LOCKED`. It sends only while the item is visible and makes one FCM HTTP send attempt per event. Failed/ambiguous events require operator review instead of duplicate-prone blind retries. Delivery itself is subject to FCM/network limitations.
 
-SQL `SECURITY DEFINER` functions use an empty search path and qualified table references. Answer keys and owners are in a non-exposed schema. `is_owner` reads database membership, not editable user metadata. Publication and notification operations are denied to regular users. Public RPCs expose no answer keys or correctness per question; retries return aggregate scores, as requested. With unlimited retries, aggregate scores can let a determined user infer answers; that is inherent to retryable quizzes, not a key download endpoint.
-
-Published questions cannot be edited until their quiz is put back in draft. Attempt score/total is an immutable historical result; no raw answers or answer keys are retained in viewer rows. All note text is rendered as Flutter text, not executable HTML.
-
-The outbox has a unique `(kind,item_id)` constraint and atomic `FOR UPDATE SKIP LOCKED` claim. Re-publishing never creates a second event. Pending events are dispatched only while the item is visible. Delivery uses one HTTP send attempt per event: a failed/ambiguous call is not blindly retried. This favors avoiding duplicate alerts over guaranteed delivery; FCM and external HTTP cannot provide an exactly-once delivery guarantee. An operator must investigate stranded `dispatching` or `failed` events. Android tags, collapse keys and foreground event-ID deduplication further limit repeat presentation.
-
-No owner login, Supabase service key, Google client secret or FCM server key is part of the app. Public client configuration is supplied at build time. Demo mode explicitly uses local account state, sample videos and local grading; it never pretends to be live authentication or server scoring.
+Unit tests inject HTTP responses into the actual Supabase repository. A separate Android integration test uses real Supabase Auth/RLS and server grading against isolated local fixtures. Neither mechanism exists as an application runtime mode.
