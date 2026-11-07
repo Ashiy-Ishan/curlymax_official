@@ -1,5 +1,5 @@
 name: curlymax_dashboard
-description: Private CURLYmax owner dashboard for Mac browsers.
+description: Private CURLYmax owner dashboard for Android and Mac browsers.
 publish_to: none
 version: 1.0.0+1
 environment:

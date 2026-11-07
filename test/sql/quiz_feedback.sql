@@ -55,3 +55,43 @@ do $$ declare items jsonb; begin
 end $$;
 reset role;
 select 'PASS: guest/user isolation, private keys, order/choice validation, 3/6 streak milestones, reset, replay safety, single saved attempt, owner explanations' as result;
+
+-- Published grading data cannot change even through privileged SQL edits.
+do $$ begin
+ begin
+  update private.answer_keys set correct_index=1 where question_id='00000000-0000-0000-0000-000000000001';
+  raise exception 'Published answer key changed';
+ exception when raise_exception then
+  if sqlerrm <> 'Unpublish quiz before editing answer keys' then raise; end if;
+ end;
+ if has_schema_privilege('authenticated','public','CREATE') then raise exception 'Viewer can create SQL objects'; end if;
+ if has_table_privilege('authenticated','private.owners','INSERT') then raise exception 'Viewer can grant ownership'; end if;
+ if exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relkind='r' and not c.relrowsecurity) then raise exception 'Private table missing RLS'; end if;
+end $$;
+set role authenticated;
+set request.jwt.claim.sub='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+insert into public.notes(id,video_id,body) values ('99999999-9999-9999-9999-999999999999','11111111-1111-1111-1111-111111111111','Private note');
+do $$ begin
+ begin perform public.set_answer_key('00000000-0000-0000-0000-000000000001',0); raise exception 'Viewer changed keys'; exception when insufficient_privilege then null; end;
+ begin insert into public.channels(name,handle) values ('Unauthorized','@unauthorized'); raise exception 'Viewer created channel'; exception when insufficient_privilege then null; end;
+ begin insert into public.notes(user_id,video_id,body) values ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb','11111111-1111-1111-1111-111111111111','Forged'); raise exception 'Viewer forged note owner'; exception when insufficient_privilege then null; end;
+end $$;
+set request.jwt.claim.sub='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+do $$ begin
+ if exists(select 1 from public.notes) then raise exception 'Cross-user note read'; end if;
+ update public.notes set body='Stolen' where id='99999999-9999-9999-9999-999999999999';
+ if found then raise exception 'Cross-user note update'; end if;
+ delete from public.notes where id='99999999-9999-9999-9999-999999999999';
+ if found then raise exception 'Cross-user note delete'; end if;
+end $$;
+reset role;
+select 'PASS: published keys frozen, private RLS, owner-only publishing, note ownership and SQL object creation denied' as result;
+
+do $$ begin
+ begin
+  insert into private.owners values ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+  raise exception 'Second owner accepted';
+ exception when unique_violation then null;
+ end;
+end $$;
+select 'PASS: singleton owner enforced' as result;

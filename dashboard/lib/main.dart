@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -7,19 +9,31 @@ const tables = ['channels', 'sections', 'videos', 'quizzes', 'Notifications'];
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   const url = String.fromEnvironment('SUPABASE_URL');
-  const key = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
+  const key = String.fromEnvironment(
+    'SUPABASE_PUBLISHABLE_KEY',
+    defaultValue: String.fromEnvironment('SUPABASE_ANON_KEY'),
+  );
   String? error;
   try {
-    if (!url.startsWith('https://') ||
-        key.isEmpty ||
-        key.startsWith('sb_secret_')) {
+    if (!isValidProjectUrl(url) || !isPublicKey(key)) {
       throw StateError(
         'Set a Supabase HTTPS URL and public publishable key in dashboard/config.json.',
       );
     }
-    await Supabase.initialize(url: url, publishableKey: key);
-  } catch (e) {
-    error = '$e';
+    await Supabase.initialize(
+      url: url,
+      publishableKey: key,
+      authOptions: FlutterAuthClientOptions(
+        persistSession: kIsWeb,
+        detectSessionInUriPredicate: (uri) => kIsWeb
+            ? uri.origin == Uri.base.origin
+            : uri.scheme == 'com.curlymax.studio' &&
+                  uri.host == 'login-callback',
+      ),
+    );
+  } catch (_) {
+    error =
+        'Unable to initialize Studio. Check the public Supabase configuration and restart.';
   }
   runApp(
     MaterialApp(
@@ -38,6 +52,31 @@ Future<void> main() async {
   );
 }
 
+bool isValidProjectUrl(String value) {
+  final uri = Uri.tryParse(value);
+  return uri != null &&
+      uri.scheme == 'https' &&
+      uri.host.isNotEmpty &&
+      uri.userInfo.isEmpty &&
+      !uri.hasQuery &&
+      !uri.hasFragment &&
+      (uri.path.isEmpty || uri.path == '/');
+}
+
+bool isPublicKey(String key) {
+  if (key.startsWith('sb_publishable_')) return key.length > 20;
+  final parts = key.split('.');
+  if (parts.length != 3 || parts.any((part) => part.isEmpty)) return false;
+  try {
+    final payload = jsonDecode(
+      utf8.decode(base64Url.decode(base64Url.normalize(key.split('.')[1]))),
+    );
+    return payload is Map && payload['role'] == 'anon';
+  } catch (_) {
+    return false;
+  }
+}
+
 class Studio extends StatefulWidget {
   const Studio({super.key});
   @override
@@ -51,6 +90,7 @@ class _StudioState extends State<Studio> {
   bool checking = true, owner = false, busy = false;
   String? error;
   int selected = 0;
+  int authGeneration = 0;
   String search = '';
   Map<String, List<RecordData>> data = {};
   List<RecordData> notifications = [];
@@ -72,14 +112,18 @@ class _StudioState extends State<Studio> {
 
   Future<void> checkOwner() async {
     if (!mounted) return;
+    final generation = ++authGeneration;
     setState(() {
       checking = true;
+      owner = false;
+      data = {};
+      notifications = [];
       error = null;
     });
     try {
       final allowed =
           db.auth.currentUser != null && await db.rpc('is_owner') == true;
-      if (!mounted) return;
+      if (!mounted || generation != authGeneration) return;
       setState(() {
         owner = allowed;
         checking = false;
@@ -88,7 +132,7 @@ class _StudioState extends State<Studio> {
       });
       if (allowed) await refresh();
     } catch (e) {
-      if (mounted) {
+      if (mounted && generation == authGeneration) {
         setState(() {
           error = '$e';
           checking = false;
@@ -99,6 +143,8 @@ class _StudioState extends State<Studio> {
   }
 
   Future<void> refresh() async {
+    if (!mounted || !owner) return;
+    final generation = authGeneration;
     setState(() {
       busy = true;
       error = null;
@@ -116,11 +162,14 @@ class _StudioState extends State<Studio> {
         }
         loaded[t] = rows;
       }
-      if (mounted) setState(() => data = loaded);
+      if (!mounted || generation != authGeneration || !owner) return;
+      setState(() => data = loaded);
       final events = List<RecordData>.from(
         await db.rpc('owner_notification_status'),
       );
-      if (mounted) setState(() => notifications = events);
+      if (mounted && generation == authGeneration && owner) {
+        setState(() => notifications = events);
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -129,6 +178,7 @@ class _StudioState extends State<Studio> {
   }
 
   Future<void> act(Future<void> Function() action) async {
+    if (!owner || db.auth.currentUser == null || busy) return;
     setState(() {
       busy = true;
       error = null;
@@ -222,81 +272,90 @@ class _StudioState extends State<Studio> {
     }
     if (!owner) {
       return Scaffold(
-        body: Center(
-          child: SizedBox(
-            width: 440,
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(28),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'CURLYmax Studio',
-                      style: TextStyle(
-                        fontSize: 30,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('Owner control dashboard'),
-                    if (db.auth.currentUser == null) ...[
-                      const SizedBox(height: 24),
-                      TextField(
-                        controller: email,
-                        decoration: const InputDecoration(
-                          labelText: 'Owner email',
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(vertical: 48),
+          child: Center(
+            child: SizedBox(
+              width: 440,
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'CURLYmax Studio',
+                        style: TextStyle(
+                          fontSize: 30,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      TextField(
-                        controller: password,
-                        obscureText: true,
-                        onSubmitted: (_) => login(),
-                        decoration: const InputDecoration(
-                          labelText: 'Password',
+                      const SizedBox(height: 12),
+                      const Text('Owner control dashboard'),
+                      if (!kIsWeb)
+                        const Text(
+                          'For your security, sign in again after closing the app.',
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      FilledButton(
-                        onPressed: busy ? null : login,
-                        child: const Text('Sign in'),
-                      ),
-                      TextButton(
-                        onPressed: busy
-                            ? null
-                            : () async {
-                                try {
-                                  await db.auth.signInWithOAuth(
-                                    OAuthProvider.google,
-                                    redirectTo: Uri.base.origin,
-                                  );
-                                } catch (e) {
-                                  if (mounted) setState(() => error = '$e');
-                                }
-                              },
-                        child: const Text('Continue with Google'),
-                      ),
-                    ] else ...[
-                      const SizedBox(height: 20),
-                      SelectableText(
-                        'This account is not an owner.\nUser ID: ${db.auth.currentUser!.id}\n\nFollow README.md to grant your account owner access.',
-                      ),
-                      TextButton(
-                        onPressed: checkOwner,
-                        child: const Text('Check access again'),
-                      ),
-                      TextButton(
-                        onPressed: () => db.auth.signOut(),
-                        child: const Text('Sign out'),
-                      ),
+                      if (db.auth.currentUser == null) ...[
+                        const SizedBox(height: 24),
+                        TextField(
+                          controller: email,
+                          decoration: const InputDecoration(
+                            labelText: 'Owner email',
+                          ),
+                        ),
+                        TextField(
+                          controller: password,
+                          obscureText: true,
+                          onSubmitted: (_) => login(),
+                          decoration: const InputDecoration(
+                            labelText: 'Password',
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        FilledButton(
+                          onPressed: busy ? null : login,
+                          child: const Text('Sign in'),
+                        ),
+                        TextButton(
+                          onPressed: busy
+                              ? null
+                              : () async {
+                                  try {
+                                    await db.auth.signInWithOAuth(
+                                      OAuthProvider.google,
+                                      redirectTo: kIsWeb
+                                          ? Uri.base.origin
+                                          : 'com.curlymax.studio://login-callback/',
+                                    );
+                                  } catch (e) {
+                                    if (mounted) setState(() => error = '$e');
+                                  }
+                                },
+                          child: const Text('Continue with Google'),
+                        ),
+                      ] else ...[
+                        const SizedBox(height: 20),
+                        SelectableText(
+                          'This account is not an owner.\nUser ID: ${db.auth.currentUser!.id}\n\nFollow README.md to grant your account owner access.',
+                        ),
+                        TextButton(
+                          onPressed: checkOwner,
+                          child: const Text('Check access again'),
+                        ),
+                        TextButton(
+                          onPressed: () => db.auth.signOut(),
+                          child: const Text('Sign out'),
+                        ),
+                      ],
+                      if (error != null)
+                        SelectableText(
+                          error!,
+                          style: const TextStyle(color: Colors.orangeAccent),
+                        ),
                     ],
-                    if (error != null)
-                      SelectableText(
-                        error!,
-                        style: const TextStyle(color: Colors.orangeAccent),
-                      ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -304,6 +363,7 @@ class _StudioState extends State<Studio> {
         ),
       );
     }
+    final compact = MediaQuery.sizeOf(context).width < 700;
     final rows =
         (table == 'Notifications'
                 ? notifications
@@ -319,183 +379,214 @@ class _StudioState extends State<Studio> {
       appBar: AppBar(
         title: const Text('CURLYmax Studio'),
         actions: [
-          TextButton.icon(
+          IconButton(
             onPressed: busy ? null : refresh,
             icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            tooltip: 'Refresh',
           ),
-          TextButton(
+          IconButton(
             onPressed: () => db.auth.signOut(),
-            child: const Text('Sign out'),
+            icon: const Icon(Icons.logout),
+            tooltip: 'Sign out',
           ),
         ],
       ),
-      body: Row(
-        children: [
-          NavigationRail(
-            selectedIndex: selected,
-            labelType: NavigationRailLabelType.all,
-            onDestinationSelected: busy
-                ? null
-                : (i) => setState(() {
-                    selected = i;
-                    search = '';
-                  }),
-            destinations: const [
-              NavigationRailDestination(
-                icon: Icon(Icons.tv),
-                label: Text('Channels'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.folder),
-                label: Text('Sections'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.play_circle),
-                label: Text('Videos'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.quiz),
-                label: Text('Quizzes'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.notifications),
-                label: Text('Alerts'),
-              ),
-            ],
-          ),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text(
-                        '$table · ${rows.length}',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                      if (table != 'Notifications')
-                        FilledButton.icon(
-                          onPressed: busy ? null : () => edit(),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add new'),
-                        ),
-                    ],
+      bottomNavigationBar: compact
+          ? NavigationBar(
+              selectedIndex: selected,
+              onDestinationSelected: busy
+                  ? null
+                  : (i) => setState(() {
+                      selected = i;
+                      search = '';
+                    }),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.tv), label: 'Channels'),
+                NavigationDestination(
+                  icon: Icon(Icons.folder),
+                  label: 'Sections',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.play_circle),
+                  label: 'Videos',
+                ),
+                NavigationDestination(icon: Icon(Icons.quiz), label: 'Quizzes'),
+                NavigationDestination(
+                  icon: Icon(Icons.notifications),
+                  label: 'Alerts',
+                ),
+              ],
+            )
+          : null,
+      body: SafeArea(
+        child: Row(
+          children: [
+            if (!compact)
+              NavigationRail(
+                selectedIndex: selected,
+                labelType: NavigationRailLabelType.all,
+                onDestinationSelected: busy
+                    ? null
+                    : (i) => setState(() {
+                        selected = i;
+                        search = '';
+                      }),
+                destinations: const [
+                  NavigationRailDestination(
+                    icon: Icon(Icons.tv),
+                    label: Text('Channels'),
                   ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    key: ValueKey(table),
-                    onChanged: (v) => setState(() => search = v),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      labelText: 'Search title, name, or status',
-                      border: OutlineInputBorder(),
-                    ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.folder),
+                    label: Text('Sections'),
                   ),
-                  if (busy) const LinearProgressIndicator(),
-                  if (error != null)
-                    Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: SelectableText(
-                        'Could not complete request: $error',
-                        style: const TextStyle(color: Colors.orangeAccent),
-                      ),
-                    ),
-                  if (table == 'Notifications')
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
-                      child: Text(
-                        'Last 100 publication events. Pending alerts need the server sender. Failed or dispatching events require review; sending is not retried here.',
-                      ),
-                    ),
-                  Expanded(
-                    child: rows.isEmpty
-                        ? Center(
-                            child: Text(
-                              busy
-                                  ? 'Loading…'
-                                  : 'No items. Add content or change your search.',
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: rows.length,
-                            itemBuilder: (_, i) {
-                              final r = rows[i];
-                              final sub = table == 'videos'
-                                  ? '${label('channels', r['channel_id'])} / ${label('sections', r['section_id'])}\n${r['youtube_url']}\n${r['status']}'
-                                  : table == 'quizzes'
-                                  ? '${label('videos', r['video_id'])}\n${r['status']}'
-                                  : table == 'sections'
-                                  ? '${label('channels', r['channel_id'])} · ${r['active'] == true ? 'Active' : 'Hidden'}'
-                                  : table == 'channels'
-                                  ? '${r['handle']} · ${r['active'] == true ? 'Active' : 'Hidden'}'
-                                  : '${r['kind']} · ${r['state']} · ${r['created_at']}\n${r['detail'] ?? ''}';
-                              return Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        '${r['title'] ?? r['name']}',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleLarge,
-                                      ),
-                                      const SizedBox(height: 8),
-                                      SelectableText(sub),
-                                      if (table != 'Notifications')
-                                        Wrap(
-                                          spacing: 8,
-                                          children: [
-                                            TextButton.icon(
-                                              onPressed: busy
-                                                  ? null
-                                                  : () => edit(r),
-                                              icon: const Icon(Icons.edit),
-                                              label: const Text('Edit'),
-                                            ),
-                                            if (table == 'quizzes')
-                                              TextButton.icon(
-                                                onPressed: busy
-                                                    ? null
-                                                    : () => questions(r),
-                                                icon: const Icon(
-                                                  Icons.checklist,
-                                                ),
-                                                label: const Text(
-                                                  'Questions & answers',
-                                                ),
-                                              ),
-                                            TextButton.icon(
-                                              onPressed: busy
-                                                  ? null
-                                                  : () => remove(r),
-                                              icon: const Icon(
-                                                Icons.delete_outline,
-                                              ),
-                                              label: const Text('Delete'),
-                                            ),
-                                          ],
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.play_circle),
+                    label: Text('Videos'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.quiz),
+                    label: Text('Quizzes'),
+                  ),
+                  NavigationRailDestination(
+                    icon: Icon(Icons.notifications),
+                    label: Text('Alerts'),
                   ),
                 ],
               ),
+            if (!compact) const VerticalDivider(width: 1),
+            Expanded(
+              child: Padding(
+                padding: EdgeInsets.all(compact ? 12 : 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          '$table · ${rows.length}',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        if (table != 'Notifications')
+                          FilledButton.icon(
+                            onPressed: busy ? null : () => edit(),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Add new'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      key: ValueKey(table),
+                      onChanged: (v) => setState(() => search = v),
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        labelText: 'Search title, name, or status',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (busy) const LinearProgressIndicator(),
+                    if (error != null)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: SelectableText(
+                          'Could not complete request: $error',
+                          style: const TextStyle(color: Colors.orangeAccent),
+                        ),
+                      ),
+                    if (table == 'Notifications')
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Text(
+                          'Last 100 publication events. Pending alerts need the server sender. Failed or dispatching events require review; sending is not retried here.',
+                        ),
+                      ),
+                    Expanded(
+                      child: rows.isEmpty
+                          ? Center(
+                              child: Text(
+                                busy
+                                    ? 'Loading…'
+                                    : 'No items. Add content or change your search.',
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: rows.length,
+                              itemBuilder: (_, i) {
+                                final r = rows[i];
+                                final sub = table == 'videos'
+                                    ? '${label('channels', r['channel_id'])} / ${label('sections', r['section_id'])}\n${r['youtube_url']}\n${r['status']}'
+                                    : table == 'quizzes'
+                                    ? '${label('videos', r['video_id'])}\n${r['status']}'
+                                    : table == 'sections'
+                                    ? '${label('channels', r['channel_id'])} · ${r['active'] == true ? 'Active' : 'Hidden'}'
+                                    : table == 'channels'
+                                    ? '${r['handle']} · ${r['active'] == true ? 'Active' : 'Hidden'}'
+                                    : '${r['kind']} · ${r['state']} · ${r['created_at']}\n${r['detail'] ?? ''}';
+                                return Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${r['title'] ?? r['name']}',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleLarge,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        SelectableText(sub),
+                                        if (table != 'Notifications')
+                                          Wrap(
+                                            spacing: 8,
+                                            children: [
+                                              TextButton.icon(
+                                                onPressed: busy
+                                                    ? null
+                                                    : () => edit(r),
+                                                icon: const Icon(Icons.edit),
+                                                label: const Text('Edit'),
+                                              ),
+                                              if (table == 'quizzes')
+                                                TextButton.icon(
+                                                  onPressed: busy
+                                                      ? null
+                                                      : () => questions(r),
+                                                  icon: const Icon(
+                                                    Icons.checklist,
+                                                  ),
+                                                  label: const Text(
+                                                    'Questions & answers',
+                                                  ),
+                                                ),
+                                              TextButton.icon(
+                                                onPressed: busy
+                                                    ? null
+                                                    : () => remove(r),
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                ),
+                                                label: const Text('Delete'),
+                                              ),
+                                            ],
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -774,7 +865,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
     title: Text('Questions · ${widget.quiz['title']}'),
     content: SizedBox(
       width: 700,
-      height: 540,
+      height: MediaQuery.sizeOf(context).height * .65,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

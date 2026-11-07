@@ -9,14 +9,33 @@ parser.add_argument('--release',action='store_true',help='Requires a private rel
 args=parser.parse_args()
 path=root/args.config
 if not path.exists():sys.exit('Missing config/live.json. Copy config/live.example.json and enter the public client settings.')
-config=json.loads(path.read_text());url=config.get('SUPABASE_URL','')
-key=config.get('SUPABASE_PUBLISHABLE_KEY') or config.get('SUPABASE_ANON_KEY','')
-if not url.startswith('https://') or 'YOUR_PROJECT' in url.upper() or not key or 'YOUR_PUBLIC' in key:
-    sys.exit('Enter a real HTTPS Supabase project URL and public publishable/anon key first.')
-role=None
-try:role=json.loads(base64.urlsafe_b64decode(key.split('.')[1]+'===').decode()).get('role')
-except (ValueError,IndexError,UnicodeDecodeError):pass
-if key.startswith('sb_secret_') or role=='service_role':sys.exit('Refusing to compile a privileged Supabase key into Android.')
+try:
+    config=json.loads(path.read_text())
+except (OSError, ValueError, UnicodeError):
+    sys.exit('Cannot read build config: use a valid JSON object with public client settings.')
+allowed_settings={'SUPABASE_URL','SUPABASE_PUBLISHABLE_KEY','SUPABASE_ANON_KEY','FCM_ENABLED','FIREBASE_API_KEY','FIREBASE_APP_ID','FIREBASE_SENDER_ID','FIREBASE_PROJECT_ID'}
+if not isinstance(config,dict) or set(config)-allowed_settings:
+    sys.exit('Build config must contain only documented public client settings. Remove unknown or server-only fields.')
+url=config.get('SUPABASE_URL','')
+def public_key(value):
+    if not isinstance(value, str):
+        return False
+    if value.startswith('sb_publishable_') and len(value) > 20:
+        return True
+    try:
+        parts = value.split('.')
+        if len(parts) != 3 or not parts[2]:
+            return False
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + '==='))
+        return isinstance(payload, dict) and payload.get('role') == 'anon'
+    except (ValueError, UnicodeError):
+        return False
+
+keys=[config[name] for name in ('SUPABASE_PUBLISHABLE_KEY','SUPABASE_ANON_KEY') if name in config]
+if not keys or not all(public_key(key) for key in keys):
+    sys.exit('Refusing invalid or privileged Supabase keys: every configured key must be public publishable/anon.')
+if not isinstance(url,str) or not url.startswith('https://') or 'YOUR_PROJECT' in url.upper():
+    sys.exit('Enter a real HTTPS Supabase project URL first.')
 if args.release:sys.exit('Release signing must be configured with your own private keystore before store distribution. Build the installable test APK without --release.')
 subprocess.run(['flutter','build','apk','--debug',f'--dart-define-from-file={path}'],cwd=root,check=True)
 output=root/'artifacts/CURLYmax-live.apk';output.parent.mkdir(exist_ok=True)

@@ -8,7 +8,7 @@ Use the project's **HTTPS API URL** and **public publishable key** in `config/li
 
 The public-key field is `SUPABASE_PUBLISHABLE_KEY`. Older anon JWTs are accepted under `SUPABASE_ANON_KEY`. Privileged keys are rejected by the configuration/build checks. `config/live.json` is ignored by Git and excluded from source archives.
 
-For a fresh project, open **Supabase → SQL Editor → New query**, paste the **entire** `supabase/install.sql` file, and press Run. Expected result: **Success. No rows returned.** This file runs the two migrations in one transaction. Do not run it again on an already installed database; use new versioned migrations for future changes.
+For a fresh project, open **Supabase → SQL Editor → New query**, paste the **entire** `supabase/install.sql` file, and press Run. Expected result: **Success. No rows returned.** This file combines the versioned migrations. Do not run it again on an already installed database; use new versioned migrations for future changes.
 
 Check the installation:
 
@@ -162,6 +162,8 @@ The source includes a real-backend Android test (`integration_test/live_test.dar
 ## Mac owner dashboard
 
 The separate Flutter browser application is in [`dashboard/`](../dashboard/README.md). Follow its README to install the owner-only SQL upgrade, grant your account owner access and run `python3 dashboard/scripts/run.py`. It manages channels, sections, videos, quizzes/questions/answer keys and displays notification status.
+
+The same separate project also builds the Android owner app **CURLYmax Studio** (`com.curlymax.studio`). Add `com.curlymax.studio://login-callback/` to Supabase Auth's redirect URLs for its Google sign-in. It can be installed alongside the viewer app. See the dashboard README for its build command and the [security review](SECURITY.md) for owner access and credential handling.
 
 ## Animated MCQ feedback
 

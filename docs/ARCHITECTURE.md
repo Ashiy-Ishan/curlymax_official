@@ -1,6 +1,6 @@
 # Architecture and security
 
-CURLYmax has one data path: **Supabase**. The Flutter app contains no sample catalog, local account, local note store, local score calculation or answer keys. Missing client configuration produces a setup screen rather than invented data.
+CURLYmax has one data path: **Supabase**. The Flutter app contains no sample catalog, local account, local note store or local quiz grading. Missing client configuration produces a setup screen rather than invented data.
 
 `lib/config.dart` reads public build settings, validates the HTTPS endpoint, and rejects service-role/secret keys. `config/live.json` and Firebase's public client JSON are ignored by Git and source packaging. Privileged notification credentials belong only to the server.
 
@@ -27,8 +27,10 @@ flowchart LR
 
 PostgreSQL is the authorization boundary. Guests can read only visible published catalog content; question rows require authentication. Notes and attempts are isolated by `auth.uid()`. Direct attempt writes are revoked; only `submit_quiz` can grade/store scores for the caller. Owner membership lives in a private table, not user-editable metadata. Security-definer functions use an empty search path and qualified object names. Answer keys and notification claims are unavailable to client roles.
 
-Published questions are frozen until their quiz is put back in draft. Historical attempts retain score/total and do not expose raw answers or keys. Unlimited retries can let a determined viewer infer answers from aggregate scores; they do not expose a downloadable answer-key endpoint.
+Published questions and answer keys are frozen until their quiz is put back in draft. The current MCQ flow uses `start_quiz_run` and `answer_quiz_question`; each submitted question receives its correct option and explanation for feedback. Unanswered keys remain private. The server locks each run and caches receipts so duplicate or concurrent requests cannot award points twice. Historical attempts retain score, total and points. Retries create separate runs.
 
 The outbox is unique by `(kind,item_id)` and claims work atomically with `FOR UPDATE SKIP LOCKED`. It sends only while the item is visible and makes one FCM HTTP send attempt per event. Failed/ambiguous events require operator review instead of duplicate-prone blind retries. Delivery itself is subject to FCM/network limitations.
 
 Unit tests inject HTTP responses into the actual Supabase repository. A separate Android integration test uses real Supabase Auth/RLS and server grading against isolated local fixtures. Neither mechanism exists as an application runtime mode.
+
+The separate Flutter project in `dashboard/` provides CURLYmax Studio for browser and Android owner administration. It uses a public project key and the owner's authenticated session; it cannot grant owner access or read viewer-private notes through the client API. See [the security review](SECURITY.md) for the authorization model and verification limits.

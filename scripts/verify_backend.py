@@ -5,7 +5,8 @@ from urllib.parse import urlencode
 
 config = json.loads(subprocess.check_output(['supabase','status','-o','json'],stderr=subprocess.DEVNULL))
 base=config['API_URL']
-assert base.startswith('http://127.0.0.1:55321'), 'Run only against CURLYmax local stack'
+if base != 'http://127.0.0.1:55321':
+    raise SystemExit('Run only against the CURLYmax local stack on port 55321.')
 anon=config['ANON_KEY']; service=config['SERVICE_ROLE_KEY']
 
 def api(path, token=anon, method='GET', body=None, schema=None):
