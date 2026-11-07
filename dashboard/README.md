@@ -1,6 +1,6 @@
 # CURLYmax Studio — Mac owner dashboard
 
-This is a separate Flutter web application. It runs in Chrome on your Mac and uses the same Supabase backend as the Android app. No Android code or server secret is needed to launch it.
+This is a separate Flutter web application. It runs in Safari, Chrome, or Edge on your Mac and uses the same Supabase backend as the Android app. No Android code or server secret is needed to launch it.
 
 ## One-time setup
 
@@ -20,7 +20,7 @@ This is a separate Flutter web application. It runs in Chrome on your Mac and us
    python3 dashboard/scripts/run.py
    ```
 
-   Flutter and Chrome must be installed. The launcher creates ignored `dashboard/config.json` from the Android project's public Supabase settings if present. Alternatively copy `config.example.json` to `config.json` and enter the URL/public key yourself. Never use a service-role key, client secret or notification service account.
+   Flutter must be installed. Once Flutter reports the server is ready, open **http://localhost:7357** in your browser. Keep the terminal running; press Ctrl+C to stop. Chrome installation or Flutter Chrome-device detection is not required. The launcher creates ignored `dashboard/config.json` from the Android project's public Supabase settings if present. Alternatively copy `config.example.json` to `config.json` and enter the URL/public key yourself. Never use a service-role key, client secret or notification service account.
 5. Sign in with the owner's email/password or Google account. Accounts without `private.owners` membership are refused; RLS and SQL functions independently enforce access.
 
 ## Manage your app
@@ -47,3 +47,7 @@ flutter build web --release --dart-define-from-file=config.json
 Deploy `build/web` only behind HTTPS, adding its exact origin to Supabase Auth redirect URLs. Public client configuration is included in browser builds by design; database authorization is enforced server-side. Do not expose the local development server to your network.
 
 The SQL upgrade must be installed manually before quiz/alert tools work. Live owner CRUD, OAuth callbacks and notification sending require configuration and acceptance testing; a compiled dashboard is not evidence those remote flows have passed.
+
+### Quiz feedback update
+
+Apply `../supabase/migrations/202611060003_quiz_feedback.sql` once to enable the Android app's server-checked answer feedback and points. The Questions & answers editor now accepts a private explanation for each question. See `../docs/QUIZ_FEEDBACK.md`.

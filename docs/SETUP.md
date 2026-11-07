@@ -130,7 +130,8 @@ select cron.schedule('curlymax-publications', '* * * * *', $$
     url := (select decrypted_secret from vault.decrypted_secrets where name='curlymax_worker_url'),
     headers := jsonb_build_object('Content-Type','application/json','Authorization',
       'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name='curlymax_scheduler_secret')),
-    body := '{}'::jsonb
+    body := '{}'::jsonb,
+    timeout_milliseconds := 120000
   );
 $$);
 ```
@@ -161,3 +162,7 @@ The source includes a real-backend Android test (`integration_test/live_test.dar
 ## Mac owner dashboard
 
 The separate Flutter browser application is in [`dashboard/`](../dashboard/README.md). Follow its README to install the owner-only SQL upgrade, grant your account owner access and run `python3 dashboard/scripts/run.py`. It manages channels, sections, videos, quizzes/questions/answer keys and displays notification status.
+
+## Animated MCQ feedback
+
+See [quiz feedback setup](QUIZ_FEEDBACK.md) for the one-time server upgrade, private explanations, attempt points and animation/accessibility behavior. Existing projects must apply `202611060003_quiz_feedback.sql` before using the new quiz screen.

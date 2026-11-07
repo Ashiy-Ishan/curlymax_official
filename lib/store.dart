@@ -293,6 +293,31 @@ class Store extends ChangeNotifier {
     );
   }
 
+  Future<RecordData> startQuizRun(String quiz) async {
+    _requireSignIn();
+    return Map<String, dynamic>.from(
+      await db
+          .rpc('start_quiz_run', params: {'quiz': quiz})
+          .timeout(const Duration(seconds: 20)),
+    );
+  }
+
+  Future<RecordData> answerQuizQuestion(
+    String run,
+    String question,
+    int choice,
+  ) async {
+    _requireSignIn();
+    return Map<String, dynamic>.from(
+      await db
+          .rpc(
+            'answer_quiz_question',
+            params: {'run_id': run, 'question': question, 'choice': choice},
+          )
+          .timeout(const Duration(seconds: 20)),
+    );
+  }
+
   Future<List<RecordData>> attempts() async {
     _requireSignIn();
     return List<RecordData>.from(

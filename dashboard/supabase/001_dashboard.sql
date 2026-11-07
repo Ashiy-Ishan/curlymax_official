@@ -1,10 +1,11 @@
 -- Run ONCE in the existing CURLYmax project's SQL Editor. No catalog reset.
 begin;
+alter table private.answer_keys add column if not exists explanation text not null default '';
 create or replace function public.owner_quiz_questions(target uuid)
 returns jsonb language plpgsql security definer set search_path='' as $$
 begin
  if not public.is_owner() then raise exception 'Owner only' using errcode='42501'; end if;
- return coalesce((select jsonb_agg(jsonb_build_object('id',q.id,'prompt',q.prompt,'options',q.options,'correct_index',k.correct_index) order by q.position)
+ return coalesce((select jsonb_agg(jsonb_build_object('id',q.id,'prompt',q.prompt,'options',q.options,'correct_index',k.correct_index,'explanation',k.explanation) order by q.position)
  from public.questions q left join private.answer_keys k on k.question_id=q.id where q.quiz_id=target),'[]'::jsonb);
 end $$;
 -- Transactional question editor: failed validation rolls back the whole edit.
@@ -24,7 +25,7 @@ begin
   answer:=(item->>'correct_index')::int;
   if answer>=jsonb_array_length(choices) then raise exception 'Answer outside options'; end if;
   insert into public.questions(quiz_id,prompt,options,position) values(target,item->>'prompt',choices,idx) returning id into question_id;
-  insert into private.answer_keys values(question_id,answer);
+  insert into private.answer_keys(question_id,correct_index,explanation) values(question_id,answer,coalesce(item->>'explanation',''));
   idx:=idx+1;
  end loop;
 end $$;

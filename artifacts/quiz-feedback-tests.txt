@@ -1,0 +1,20 @@
+00:00 +0: loading /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart
+00:00 +0: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Client configuration Requires a real endpoint and a public key
+00:00 +1: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Client configuration Rejects privileged keys before initializing the app
+00:00 +2: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Client configuration Notification destinations accept catalog IDs, never URLs or unknown types
+00:00 +3: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Guests cannot read or mutate private data through the repository
+00:00 +4: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Quiz submission calls the grading RPC and returns its score verbatim
+00:00 +5: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Notes are sent to Supabase without a client-supplied owner
+00:00 +6: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Editing a missing note fails instead of pretending it was saved
+00:00 +7: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:02 +8: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:02 +9: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:02 +10: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:03 +11: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:03 +12: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:03 +13: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:03 +14: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:03 +15: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:03 +16: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Catalog loads published data, caches it, and preserves it after a network error
+00:07 +17: /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/store_test.dart: Saved authentication destinations survive repository recreation
+00:07 +18: All tests passed!

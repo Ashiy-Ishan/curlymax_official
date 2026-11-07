@@ -1,0 +1,11 @@
+CURLYmax 1.2.0+3 quiz feedback verification — 7 November 2026
+
+PASS Flutter analysis, no issues.
+PASS 18 app tests, including double taps, authoritative server points, preserved retry choice, reduced motion, accessible score labels and large text.
+PASS Dashboard analysis and 2 form tests.
+PASS Isolated direct PostgreSQL role tests, guest and two-user privacy, private keys, sequential answers, streak milestones/reset, duplicate and concurrent submissions, single saved attempts, atomic explanation edits and stale-run invalidation.
+PASS Android universal debug APK build. Signature v2 verified.
+
+Live project migration has not been applied by the agent. Run supabase/migrations/202611060003_quiz_feedback.sql once before using the new quiz. Add private explanations through the updated dashboard editor.
+The quiz now presents one question at a time and grades each answer on the server. Points reset for each intentional retry. Three-correct milestones at 3, 6, 9, ... each award 50 bonus points once within that run.
+Actual Android/TalkBack/reduced-motion device acceptance and hosted quiz flows remain unverified for this build. The Android integration fixture was updated for sequential feedback but was not run.

@@ -1,0 +1,5 @@
+WARNING:  wal_level is insufficient to publish logical changes
+HINT:  Set wal_level to "logical" before creating subscriptions.
+PASS: guest/user isolation, private keys, order/choice validation, 3/6 streak milestones, reset, replay safety, single saved attempt, owner explanations
+PASS: concurrent duplicate submissions award only once
+PASS: atomic owner edits, private explanations and stale-run invalidation

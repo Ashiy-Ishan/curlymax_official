@@ -88,12 +88,13 @@ class _StudioState extends State<Studio> {
       });
       if (allowed) await refresh();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           error = '$e';
           checking = false;
           owner = false;
         });
+      }
     }
   }
 
@@ -216,8 +217,9 @@ class _StudioState extends State<Studio> {
 
   @override
   Widget build(BuildContext context) {
-    if (checking)
+    if (checking) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     if (!owner) {
       return Scaffold(
         body: Center(
@@ -584,13 +586,15 @@ class _ContentFormState extends State<ContentForm> {
       ),
       validator: (v) {
         if (required && (v == null || v.trim().isEmpty)) return 'Required';
-        if (k == 'position' && int.tryParse(v ?? '') == null)
+        if (k == 'position' && int.tryParse(v ?? '') == null) {
           return 'Enter a whole number';
+        }
         if (k == 'youtube_url' &&
             !RegExp(
               r'^https?://(?:(?:www\.|m\.)?youtube\.com/(?:watch\?.*\bv=|shorts/)|youtu\.be/)[A-Za-z0-9_-]{11}(?:[?&#/].*)?$',
-            ).hasMatch(v ?? ''))
+            ).hasMatch(v ?? '')) {
           return 'Use a YouTube watch, Shorts or youtu.be URL';
+        }
         return null;
       },
     ),
@@ -801,6 +805,16 @@ class _QuestionEditorState extends State<QuestionEditor> {
                           ),
                           onChanged: (v) => q['prompt'] = v,
                         ),
+                        TextFormField(
+                          initialValue: q['explanation'] ?? '',
+                          enabled: editable && !saving,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText:
+                                'Why this answer? (optional explanation)',
+                          ),
+                          onChanged: (v) => q['explanation'] = v,
+                        ),
                         for (var j = 0; j < choices.length; j++)
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
@@ -859,8 +873,9 @@ class _QuestionEditorState extends State<QuestionEditor> {
                                           choices.length - 1,
                                         );
                                         if ((q['correct_index'] ?? 0) >=
-                                            choices.length - 1)
+                                            choices.length - 1) {
                                           q['correct_index'] = 0;
+                                        }
                                       }),
                                 child: const Text('Remove last option'),
                               ),
@@ -935,6 +950,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
                                 'prompt': q['prompt'],
                                 'options': q['options'],
                                 'correct_index': q['correct_index'],
+                                'explanation': q['explanation'] ?? '',
                               },
                             )
                             .toList(),

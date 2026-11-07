@@ -1,0 +1,4 @@
+00:00 +0: loading /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/dashboard/test/content_form_test.dart
+00:00 +0: Video form rejects empty input and filters sections by channel
+00:01 +1: New quizzes default to draft and explain publication prerequisites
+00:02 +2: All tests passed!

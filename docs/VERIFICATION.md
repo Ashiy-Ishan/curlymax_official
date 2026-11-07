@@ -1,4 +1,12 @@
-# CURLYmax 1.1 verification
+# CURLYmax verification
+
+## Notification sender repair — 7 November 2026
+
+The hosted sender was active with both required secrets, but the database scheduler and its Vault settings were missing. Installed pg_cron and pg_net, generated a replacement scheduler credential shared securely between Edge Functions and Vault, and enabled `curlymax-publications` every minute with a 120-second HTTP timeout.
+
+The first scheduled run succeeded at 07:38 UTC. The function returned HTTP 200 with `sent=2` and `failed=0`. Both previously pending video events changed to `sent` with `Accepted by FCM`. No pending events remained at verification. Actual receipt and tap navigation on a phone still require device confirmation.
+
+Current quiz update is **1.2.0+3**. Its analysis, automated UI/database checks, APK build and remaining Android acceptance are recorded in `artifacts/quiz-feedback-verification.txt`. The historical checks below apply to 1.1.0+2. Apply the new quiz migration described in [QUIZ_FEEDBACK.md](QUIZ_FEEDBACK.md) before using the updated quiz.
 
 Date: **6 November 2026**. This record applies to the **live-only** 1.1.0+2 app.
 

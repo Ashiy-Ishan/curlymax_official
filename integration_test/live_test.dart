@@ -54,14 +54,14 @@ void main() {
       expect(Supabase.instance.client.auth.currentUser?.email, email);
       expect(prefs.getString('pending_destination'), isNull);
       await tester.tap(find.text('First correct option'));
-      await tester.scrollUntilVisible(
-        find.text('Second correct option'),
-        180,
-        scrollable: find.byType(Scrollable).first,
-      );
+      await waitFor(tester, find.text('Next question'));
+      await tester.ensureVisible(find.text('Next question'));
+      await tester.tap(find.text('Next question'));
+      await waitFor(tester, find.text('Second correct option'));
       await tester.tap(find.text('Second correct option'));
-      await tester.ensureVisible(find.text('Submit answers'));
-      await tester.tap(find.text('Submit answers'));
+      await waitFor(tester, find.text('See results'));
+      await tester.ensureVisible(find.text('See results'));
+      await tester.tap(find.text('See results'));
       await waitFor(tester, find.text('2 / 2'));
       final attempts = await Supabase.instance.client
           .from('attempts')
