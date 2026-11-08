@@ -1,11 +1,38 @@
 import 'dart:async';
 import 'dart:convert';
+import 'youtube_workspace.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 typedef RecordData = Map<String, dynamic>;
-const tables = ['channels', 'sections', 'videos', 'quizzes', 'Notifications'];
+const tables = [
+  'channels',
+  'sections',
+  'videos',
+  'quizzes',
+  'Notifications',
+  'playlists',
+  'YouTube',
+];
+const navigationLabels = [
+  'Channels',
+  'Sections',
+  'Videos',
+  'Quizzes',
+  'Alerts',
+  'Playlists',
+  'YouTube',
+];
+const navigationIcons = [
+  Icons.tv,
+  Icons.folder,
+  Icons.play_circle,
+  Icons.quiz,
+  Icons.notifications,
+  Icons.playlist_play,
+  Icons.sync,
+];
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   const url = String.fromEnvironment('SUPABASE_URL');
@@ -151,7 +178,13 @@ class _StudioState extends State<Studio> {
     });
     try {
       final loaded = <String, List<RecordData>>{};
-      for (final t in tables.take(4)) {
+      for (final t in [
+        'channels',
+        'sections',
+        'videos',
+        'quizzes',
+        'playlists',
+      ]) {
         final rows = <RecordData>[];
         for (var start = 0; ; start += 500) {
           final page = List<RecordData>.from(
@@ -391,31 +424,37 @@ class _StudioState extends State<Studio> {
           ),
         ],
       ),
-      bottomNavigationBar: compact
-          ? NavigationBar(
-              selectedIndex: selected,
-              onDestinationSelected: busy
-                  ? null
-                  : (i) => setState(() {
-                      selected = i;
-                      search = '';
-                    }),
-              destinations: const [
-                NavigationDestination(icon: Icon(Icons.tv), label: 'Channels'),
-                NavigationDestination(
-                  icon: Icon(Icons.folder),
-                  label: 'Sections',
+      drawer: compact
+          ? Drawer(
+              child: SafeArea(
+                child: ListView(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Creator workspace',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    for (var i = 0; i < tables.length; i++)
+                      ListTile(
+                        selected: selected == i,
+                        leading: Icon(navigationIcons[i]),
+                        title: Text(navigationLabels[i]),
+                        onTap: () {
+                          setState(() {
+                            selected = i;
+                            search = '';
+                          });
+                          Navigator.pop(context);
+                        },
+                      ),
+                  ],
                 ),
-                NavigationDestination(
-                  icon: Icon(Icons.play_circle),
-                  label: 'Videos',
-                ),
-                NavigationDestination(icon: Icon(Icons.quiz), label: 'Quizzes'),
-                NavigationDestination(
-                  icon: Icon(Icons.notifications),
-                  label: 'Alerts',
-                ),
-              ],
+              ),
             )
           : null,
       body: SafeArea(
@@ -431,159 +470,185 @@ class _StudioState extends State<Studio> {
                         selected = i;
                         search = '';
                       }),
-                destinations: const [
-                  NavigationRailDestination(
-                    icon: Icon(Icons.tv),
-                    label: Text('Channels'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.folder),
-                    label: Text('Sections'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.play_circle),
-                    label: Text('Videos'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.quiz),
-                    label: Text('Quizzes'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.notifications),
-                    label: Text('Alerts'),
-                  ),
+                destinations: [
+                  for (var i = 0; i < tables.length; i++)
+                    NavigationRailDestination(
+                      icon: Icon(navigationIcons[i]),
+                      label: Text(navigationLabels[i]),
+                    ),
                 ],
               ),
             if (!compact) const VerticalDivider(width: 1),
             Expanded(
-              child: Padding(
-                padding: EdgeInsets.all(compact ? 12 : 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          '$table · ${rows.length}',
-                          style: Theme.of(context).textTheme.headlineMedium,
-                        ),
-                        if (table != 'Notifications')
-                          FilledButton.icon(
-                            onPressed: busy ? null : () => edit(),
-                            icon: const Icon(Icons.add),
-                            label: const Text('Add new'),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      key: ValueKey(table),
-                      onChanged: (v) => setState(() => search = v),
-                      decoration: const InputDecoration(
-                        prefixIcon: Icon(Icons.search),
-                        labelText: 'Search title, name, or status',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    if (busy) const LinearProgressIndicator(),
-                    if (error != null)
-                      Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: SelectableText(
-                          'Could not complete request: $error',
-                          style: const TextStyle(color: Colors.orangeAccent),
-                        ),
-                      ),
-                    if (table == 'Notifications')
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Text(
-                          'Last 100 publication events. Pending alerts need the server sender. Failed or dispatching events require review; sending is not retried here.',
-                        ),
-                      ),
-                    Expanded(
-                      child: rows.isEmpty
-                          ? Center(
-                              child: Text(
-                                busy
-                                    ? 'Loading…'
-                                    : 'No items. Add content or change your search.',
+              child: table == 'YouTube'
+                  ? YoutubeWorkspace(
+                      db: db,
+                      channels: data['channels'] ?? [],
+                      sections: data['sections'] ?? [],
+                      onChanged: refresh,
+                    )
+                  : Padding(
+                      padding: EdgeInsets.all(compact ? 12 : 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Wrap(
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                '${navigationLabels[selected]} · ${rows.length}',
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.headlineMedium,
                               ),
-                            )
-                          : ListView.builder(
-                              itemCount: rows.length,
-                              itemBuilder: (_, i) {
-                                final r = rows[i];
-                                final sub = table == 'videos'
-                                    ? '${label('channels', r['channel_id'])} / ${label('sections', r['section_id'])}\n${r['youtube_url']}\n${r['status']}'
-                                    : table == 'quizzes'
-                                    ? '${label('videos', r['video_id'])}\n${r['status']}'
-                                    : table == 'sections'
-                                    ? '${label('channels', r['channel_id'])} · ${r['active'] == true ? 'Active' : 'Hidden'}'
-                                    : table == 'channels'
-                                    ? '${r['handle']} · ${r['active'] == true ? 'Active' : 'Hidden'}'
-                                    : '${r['kind']} · ${r['state']} · ${r['created_at']}\n${r['detail'] ?? ''}';
-                                return Card(
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${r['title'] ?? r['name']}',
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.titleLarge,
-                                        ),
-                                        const SizedBox(height: 8),
-                                        SelectableText(sub),
-                                        if (table != 'Notifications')
-                                          Wrap(
-                                            spacing: 8,
-                                            children: [
-                                              TextButton.icon(
-                                                onPressed: busy
-                                                    ? null
-                                                    : () => edit(r),
-                                                icon: const Icon(Icons.edit),
-                                                label: const Text('Edit'),
-                                              ),
-                                              if (table == 'quizzes')
-                                                TextButton.icon(
-                                                  onPressed: busy
-                                                      ? null
-                                                      : () => questions(r),
-                                                  icon: const Icon(
-                                                    Icons.checklist,
-                                                  ),
-                                                  label: const Text(
-                                                    'Questions & answers',
-                                                  ),
-                                                ),
-                                              TextButton.icon(
-                                                onPressed: busy
-                                                    ? null
-                                                    : () => remove(r),
-                                                icon: const Icon(
-                                                  Icons.delete_outline,
-                                                ),
-                                                label: const Text('Delete'),
-                                              ),
-                                            ],
-                                          ),
-                                      ],
+                              if (table != 'Notifications')
+                                FilledButton.icon(
+                                  onPressed: busy ? null : () => edit(),
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('Add new'),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          if (table == 'videos' || table == 'quizzes')
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  Chip(
+                                    avatar: const Icon(
+                                      Icons.edit_note,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      '${(data[table] ?? []).where((r) => r['status'] == 'draft').length} drafts to review',
                                     ),
                                   ),
-                                );
-                              },
+                                  Chip(
+                                    avatar: const Icon(Icons.public, size: 18),
+                                    label: Text(
+                                      '${(data[table] ?? []).where((r) => r['status'] == 'published').length} published',
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
+                          TextField(
+                            key: ValueKey(table),
+                            onChanged: (v) => setState(() => search = v),
+                            decoration: const InputDecoration(
+                              prefixIcon: Icon(Icons.search),
+                              labelText: 'Search title, name, or status',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          if (busy) const LinearProgressIndicator(),
+                          if (error != null)
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: SelectableText(
+                                'Could not complete request: $error',
+                                style: const TextStyle(
+                                  color: Colors.orangeAccent,
+                                ),
+                              ),
+                            ),
+                          if (table == 'Notifications')
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 12),
+                              child: Text(
+                                'Last 100 publication events. Pending alerts need the server sender. Failed or dispatching events require review; sending is not retried here.',
+                              ),
+                            ),
+                          Expanded(
+                            child: rows.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      busy
+                                          ? 'Loading…'
+                                          : 'No items. Add content or change your search.',
+                                    ),
+                                  )
+                                : ListView.builder(
+                                    itemCount: rows.length,
+                                    itemBuilder: (_, i) {
+                                      final r = rows[i];
+                                      final sub = table == 'videos'
+                                          ? '${label('channels', r['channel_id'])} / ${label('sections', r['section_id'])}\n${r['youtube_url']}\n${r['status']}'
+                                          : table == 'quizzes'
+                                          ? '${label('videos', r['video_id'])}\n${r['status']}'
+                                          : table == 'sections'
+                                          ? '${label('channels', r['channel_id'])} · ${r['active'] == true ? 'Active' : 'Hidden'}'
+                                          : table == 'channels'
+                                          ? '${r['handle']} · ${r['active'] == true ? 'Active' : 'Hidden'}'
+                                          : '${r['kind']} · ${r['state']} · ${r['created_at']}\n${r['detail'] ?? ''}';
+                                      return Card(
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${r['title'] ?? r['name']}',
+                                                style: Theme.of(
+                                                  context,
+                                                ).textTheme.titleLarge,
+                                              ),
+                                              const SizedBox(height: 8),
+                                              SelectableText(sub),
+                                              if (table != 'Notifications')
+                                                Wrap(
+                                                  spacing: 8,
+                                                  children: [
+                                                    TextButton.icon(
+                                                      onPressed: busy
+                                                          ? null
+                                                          : () => edit(r),
+                                                      icon: const Icon(
+                                                        Icons.edit,
+                                                      ),
+                                                      label: const Text('Edit'),
+                                                    ),
+                                                    if (table == 'quizzes')
+                                                      TextButton.icon(
+                                                        onPressed: busy
+                                                            ? null
+                                                            : () =>
+                                                                  questions(r),
+                                                        icon: const Icon(
+                                                          Icons.checklist,
+                                                        ),
+                                                        label: const Text(
+                                                          'Questions & answers',
+                                                        ),
+                                                      ),
+                                                    TextButton.icon(
+                                                      onPressed: busy
+                                                          ? null
+                                                          : () => remove(r),
+                                                      icon: const Icon(
+                                                        Icons.delete_outline,
+                                                      ),
+                                                      label: const Text(
+                                                        'Delete',
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -641,6 +706,8 @@ class _ContentFormState extends State<ContentForm> {
       'description',
       'youtube_url',
       'position',
+      'youtube_playlist_id',
+      'thumbnail_url',
     ]) {
       fields[k] = TextEditingController(
         text: '${r[k] ?? (k == 'position' ? 0 : '')}',
@@ -679,6 +746,15 @@ class _ContentFormState extends State<ContentForm> {
         if (required && (v == null || v.trim().isEmpty)) return 'Required';
         if (k == 'position' && int.tryParse(v ?? '') == null) {
           return 'Enter a whole number';
+        }
+        if (k == 'youtube_playlist_id' &&
+            !RegExp(r'^[A-Za-z0-9_-]{10,100}$').hasMatch(v ?? '')) {
+          return 'Enter the playlist ID, not its URL';
+        }
+        if (k == 'thumbnail_url' &&
+            (v?.isNotEmpty ?? false) &&
+            Uri.tryParse(v!)?.scheme != 'https') {
+          return 'Use an HTTPS image URL';
         }
         if (k == 'youtube_url' &&
             !RegExp(
@@ -735,7 +811,7 @@ class _ContentFormState extends State<ContentForm> {
                 if (t == 'channels' || t == 'sections') field('name', 'Name'),
                 if (t == 'channels')
                   field('handle', 'YouTube handle, e.g. @ashiy_ish'),
-                if (t == 'sections' || t == 'videos')
+                if (t == 'sections' || t == 'videos' || t == 'playlists')
                   pick(
                     'Channel',
                     channel,
@@ -764,7 +840,34 @@ class _ContentFormState extends State<ContentForm> {
                     widget.data['videos'] ?? [],
                     (v) => setState(() => video = v),
                   ),
-                if (t == 'videos' || t == 'quizzes') field('title', 'Title'),
+                if (t == 'videos' || t == 'quizzes' || t == 'playlists')
+                  field('title', 'Title'),
+                if (t == 'playlists') ...[
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 16),
+                    child: Text(
+                      'YouTube sync refreshes playlist metadata and video membership. Visibility stays under your control.',
+                    ),
+                  ),
+                  field('youtube_playlist_id', 'YouTube playlist ID'),
+                  field('position', 'Sort position'),
+                  field(
+                    'description',
+                    'Description',
+                    required: false,
+                    lines: 3,
+                  ),
+                  field(
+                    'thumbnail_url',
+                    'Thumbnail HTTPS URL',
+                    required: false,
+                  ),
+                  SwitchListTile(
+                    title: const Text('Active / visible'),
+                    value: active,
+                    onChanged: (v) => setState(() => active = v),
+                  ),
+                ],
                 if (t == 'videos') ...[
                   field('youtube_url', 'YouTube URL'),
                   field(
@@ -819,6 +922,13 @@ class _ContentFormState extends State<ContentForm> {
                     ? ['name']
                     : t == 'videos'
                     ? ['title', 'youtube_url', 'description']
+                    : t == 'playlists'
+                    ? [
+                        'title',
+                        'youtube_playlist_id',
+                        'description',
+                        'thumbnail_url',
+                      ]
                     : ['title'])) {
               r[k] = fields[k]!.text.trim();
             }
@@ -826,9 +936,15 @@ class _ContentFormState extends State<ContentForm> {
               r['position'] = int.parse(fields['position']!.text);
               r['active'] = active;
             }
-            if (t == 'sections' || t == 'videos') r['channel_id'] = channel;
+            if (t == 'sections' || t == 'videos' || t == 'playlists') {
+              r['channel_id'] = channel;
+            }
             if (t == 'videos') r['section_id'] = section;
             if (t == 'quizzes') r['video_id'] = video;
+            if (t == 'playlists') {
+              r['active'] = active;
+              r['position'] = int.parse(fields['position']!.text);
+            }
             if (t == 'videos' || t == 'quizzes') r['status'] = status;
             Navigator.pop(context, r);
           },

@@ -228,6 +228,12 @@ void main() {
           'quizzes' => [
             {'id': 'q', 'video_id': videoId},
           ],
+          'playlists' => [
+            {'id': 'p', 'channel_id': 'c', 'title': 'Learning'},
+          ],
+          'playlist_videos' => [
+            {'playlist_id': 'p', 'video_id': videoId},
+          ],
           _ => [],
         };
         return http.Response(
@@ -239,6 +245,14 @@ void main() {
       await store.refresh();
       expect(store.videos.single['title'], 'Server upload');
       expect(store.quizzes.single['id'], 'q');
+      expect(store.playlists.single['id'], 'p');
+      expect(store.playlistVideos.single['video_id'], videoId);
+      expect(
+        jsonDecode(
+          prefs.getString('catalog:https://unit.test')!,
+        )['playlists'].length,
+        1,
+      );
       expect(prefs.getString('catalog:https://unit.test'), isNotNull);
       expect(
         requests
@@ -256,6 +270,27 @@ void main() {
       await store.refresh();
       expect(store.error, contains('Can’t reach CURLYmax'));
       expect(store.videos.single['title'], 'Server upload');
+    },
+  );
+
+  test(
+    'Missing optional playlist tables do not block older catalog installations',
+    () async {
+      respond = (r) async => r.url.path.contains('playlist')
+          ? http.Response(
+              '{"code":"PGRST205","message":"missing table"}',
+              404,
+              headers: {'content-type': 'application/json'},
+            )
+          : http.Response(
+              '[]',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+      await store.refresh();
+      expect(store.error, isNull);
+      expect(store.playlists, isEmpty);
+      expect(store.playlistVideos, isEmpty);
     },
   );
 

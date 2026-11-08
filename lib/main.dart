@@ -271,6 +271,27 @@ Widget label(String text) => Text(
   ),
 );
 
+class ChannelAvatar extends StatelessWidget {
+  const ChannelAvatar({super.key, required this.channel, this.radius = 18});
+  final RecordData? channel;
+  final double radius;
+  @override
+  Widget build(BuildContext context) {
+    final name = '${channel?['name'] ?? 'CURLYmax'}'.trim();
+    final words = name.split(RegExp(r'\s+')).where((word) => word.isNotEmpty);
+    final initials = words.take(2).map((word) => word.characters.first).join().toUpperCase();
+    final url = channel?['avatar_url'];
+    final fallback = Center(child: Text(initials.isEmpty ? 'C' : initials,
+      style: TextStyle(color: accent, fontSize: radius * .7, fontWeight: FontWeight.w800)));
+    return ExcludeSemantics(child: ClipOval(child: SizedBox.square(
+      dimension: radius * 2,
+      child: ColoredBox(color: const Color(0xFF26331E), child: url is String && Uri.tryParse(url)?.scheme == 'https'
+        ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, e, st) => fallback)
+        : fallback),
+    )));
+  }
+}
+
 class Home extends StatefulWidget {
   const Home({super.key, required this.store, required this.notifications});
   final Store store;
@@ -280,30 +301,74 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  String? channel, section;
+  String? channel, section, playlist;
+  bool browsingPlaylists = false;
   Store get store => widget.store;
+  String get _channelPreference => 'selected_channel:${store.backendUrl}';
+  List<RecordData> get activeChannels => store.channels.where((c) => c['active'] != false).toList();
+  @override
+  void initState() {
+    super.initState();
+    channel = store.prefs.getString(_channelPreference);
+  }
+
+  Future<void> chooseChannel() async {
+    final chosen = await showModalBottomSheet<String>(context: context,
+      showDragHandle: true, isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(child: AnimatedBuilder(animation: store,
+        builder: (context, _) {
+          final channels = activeChannels;
+          final selected = channels.any((c) => c['id'] == channel) ? channel : channels.firstOrNull?['id'];
+          return ConstrainedBox(constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .75),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Padding(padding: EdgeInsets.fromLTRB(24, 8, 24, 16), child: Text('Choose a channel', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700))),
+              if (channels.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('Channels will appear here when they are published.')),
+              Flexible(child: ListView.builder(shrinkWrap: true, itemCount: channels.length,
+                itemBuilder: (context, index) {
+                  final item = channels[index];
+                  return ListTile(leading: ChannelAvatar(channel: item, radius: 24),
+                    title: Text(item['name'] ?? 'Channel'), subtitle: Text(item['handle'] ?? ''),
+                    selected: item['id'] == selected,
+                    trailing: item['id'] == selected ? const Icon(Icons.check_circle, color: accent) : null,
+                    onTap: () => Navigator.pop(sheetContext, item['id'] as String),
+                  );
+                })),
+            ]));
+        })),
+    );
+    if (!mounted || chosen == null || !activeChannels.any((c) => c['id'] == chosen)) return;
+    setState(() { channel = chosen; section = null; playlist = null; });
+    await store.prefs.setString(_channelPreference, chosen);
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: store,
     builder: (context, _) {
-      final selectedChannel = store.channels.any((c) => c['id'] == channel)
+      final selectedChannel = activeChannels.any((c) => c['id'] == channel)
           ? channel
-          : store.channels.firstOrNull?['id'];
+          : activeChannels.firstOrNull?['id'];
       final sections = store.sections
           .where((s) => s['channel_id'] == selectedChannel)
           .toList();
       final selectedSection = sections.any((s) => s['id'] == section)
           ? section
           : null;
-      final channelVideos = store.videos
-          .where((v) => v['channel_id'] == selectedChannel)
+      final channelPlaylists = store.playlists
+          .where((p) => p['channel_id'] == selectedChannel)
           .toList();
-      final videos = channelVideos
-          .where(
-            (v) =>
-                selectedSection == null || v['section_id'] == selectedSection,
-          )
-          .toList();
+      final selectedPlaylist = channelPlaylists.any((p) => p['id'] == playlist)
+          ? playlist
+          : channelPlaylists.firstOrNull?['id'];
+      final channelVideos = store.channelUploads(selectedChannel);
+      final popular = store.popularUploads(selectedChannel).take(3).toList();
+      final videos = browsingPlaylists && selectedPlaylist == null
+          ? <RecordData>[]
+          : store.channelUploads(
+              selectedChannel,
+              playlistId: browsingPlaylists ? selectedPlaylist : null,
+              sectionId: browsingPlaylists ? null : selectedSection,
+            );
       return Scaffold(
         appBar: AppBar(
           title: const Text.rich(
@@ -324,6 +389,11 @@ class _HomeState extends State<Home> {
             ),
           ),
           actions: [
+            IconButton(
+              tooltip: 'Choose channel',
+              onPressed: chooseChannel,
+              icon: ChannelAvatar(channel: activeChannels.where((c) => c['id'] == selectedChannel).firstOrNull),
+            ),
             IconButton(
               tooltip: 'Account and settings',
               icon: const Icon(Icons.person_outline_rounded),
@@ -353,9 +423,9 @@ class _HomeState extends State<Home> {
                       label('WATCH. LEARN. MAKE IT YOURS.'),
                       const SizedBox(height: 12),
                       const Text(
-                        'Stay curious.\nGo a little further.',
+                        'Your next idea starts here.',
                         style: TextStyle(
-                          fontSize: 36,
+                          fontSize: 26,
                           height: 1.12,
                           fontWeight: FontWeight.w800,
                           letterSpacing: -1.5,
@@ -370,25 +440,6 @@ class _HomeState extends State<Home> {
                         style: const TextStyle(color: Colors.white60),
                       ),
                       const SizedBox(height: 24),
-                      if (store.channels.length > 1)
-                        DropdownButtonFormField<String>(
-                          initialValue: selectedChannel,
-                          decoration: const InputDecoration(
-                            labelText: 'Channel',
-                          ),
-                          items: store.channels
-                              .map(
-                                (c) => DropdownMenuItem<String>(
-                                  value: c['id'],
-                                  child: Text(c['name']),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) => setState(() {
-                            channel = v;
-                            section = null;
-                          }),
-                        ),
                       if (store.loading)
                         const LinearProgressIndicator(minHeight: 2),
                       if (store.error != null)
@@ -411,7 +462,26 @@ class _HomeState extends State<Home> {
                             ],
                           ),
                         ),
-                      if (channelVideos.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment(
+                            value: false,
+                            label: Text('Home'),
+                            icon: Icon(Icons.home_outlined),
+                          ),
+                          ButtonSegment(
+                            value: true,
+                            label: Text('Playlists'),
+                            icon: Icon(Icons.playlist_play),
+                          ),
+                        ],
+                        selected: {browsingPlaylists},
+                        onSelectionChanged: (value) =>
+                            setState(() => browsingPlaylists = value.first),
+                      ),
+                      const SizedBox(height: 24),
+                      if (!browsingPlaylists && channelVideos.isNotEmpty) ...[
                         label('LATEST UPLOAD'),
                         const SizedBox(height: 12),
                         VideoCard(
@@ -421,49 +491,221 @@ class _HomeState extends State<Home> {
                         ),
                         const SizedBox(height: 28),
                       ],
-                      const Text(
-                        'Find your next spark',
+                      if (!browsingPlaylists) ...[
+                        const Text(
+                          'Trending',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Popular on this channel · ranked by total YouTube views',
+                          style: TextStyle(color: Colors.white60),
+                        ),
+                        const SizedBox(height: 12),
+                        if (popular.isEmpty)
+                          const Text(
+                            'View counts are not available yet.',
+                            style: TextStyle(color: Colors.white60),
+                          ),
+                        ...popular.map(
+                          (video) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: CompactVideoCard(
+                              video: video,
+                              onTap: () => open(video),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      Text(
+                        browsingPlaylists ? 'Your playlists' : 'Latest videos',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 12),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
+                      if (browsingPlaylists)
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            ChoiceChip(
-                              label: const Text('All videos'),
-                              selected: selectedSection == null,
-                              onSelected: (_) => setState(() => section = null),
-                            ),
-                            const SizedBox(width: 8),
-                            ...sections.map(
-                              (s) => Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: ChoiceChip(
-                                  label: Text(s['name']),
-                                  selected: s['id'] == selectedSection,
-                                  onSelected: (_) =>
-                                      setState(() => section = s['id']),
-                                ),
+                            LayoutBuilder(
+                              builder: (context, constraints) => Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: channelPlaylists.map((p) {
+                                  final members = store.channelUploads(
+                                    selectedChannel,
+                                    playlistId: p['id'],
+                                  );
+                                  final cover = p['thumbnail_url'] as String?;
+                                  return SizedBox(
+                                    width: constraints.maxWidth >= 320
+                                        ? (constraints.maxWidth - 12) / 2
+                                        : constraints.maxWidth,
+                                    child: Semantics(
+                                      selected: p['id'] == selectedPlaylist,
+                                      button: true,
+                                      child: Card(
+                                        margin: EdgeInsets.zero,
+                                        clipBehavior: Clip.antiAlias,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          side: BorderSide(
+                                            color: p['id'] == selectedPlaylist
+                                                ? accent
+                                                : Colors.white12,
+                                            width: 2,
+                                          ),
+                                        ),
+                                        child: InkWell(
+                                          onTap: () => setState(
+                                            () => playlist = p['id'],
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              AspectRatio(
+                                                aspectRatio: 16 / 9,
+                                                child:
+                                                    cover != null &&
+                                                        cover.startsWith(
+                                                          'https://',
+                                                        )
+                                                    ? Image.network(
+                                                        cover,
+                                                        fit: BoxFit.cover,
+                                                        excludeFromSemantics:
+                                                            true,
+                                                        errorBuilder:
+                                                            (
+                                                              _,
+                                                              e,
+                                                              st,
+                                                            ) => const ColoredBox(
+                                                              color: Color(
+                                                                0xFF26331E,
+                                                              ),
+                                                              child: Icon(
+                                                                Icons
+                                                                    .playlist_play,
+                                                                color: accent,
+                                                                size: 40,
+                                                              ),
+                                                            ),
+                                                      )
+                                                    : const ColoredBox(
+                                                        color: Color(
+                                                          0xFF26331E,
+                                                        ),
+                                                        child: Icon(
+                                                          Icons.playlist_play,
+                                                          color: accent,
+                                                          size: 40,
+                                                        ),
+                                                      ),
+                                              ),
+                                              Padding(
+                                                padding: const EdgeInsets.all(
+                                                  12,
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      p['title'] ?? 'Playlist',
+                                                      style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 6),
+                                                    Text(
+                                                      '${members.length} videos',
+                                                      style: const TextStyle(
+                                                        color: Colors.white60,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
                               ),
                             ),
+                            if (selectedPlaylist != null) ...[
+                              const SizedBox(height: 24),
+                              Text(
+                                channelPlaylists.firstWhere(
+                                      (p) => p['id'] == selectedPlaylist,
+                                    )['title'] ??
+                                    'Playlist',
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const Text(
+                                'Newest uploads first',
+                                style: TextStyle(color: Colors.white60),
+                              ),
+                            ],
                           ],
+                        )
+                      else
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              ChoiceChip(
+                                label: const Text('All videos'),
+                                selected: selectedSection == null,
+                                onSelected: (_) =>
+                                    setState(() => section = null),
+                              ),
+                              const SizedBox(width: 8),
+                              ...sections.map(
+                                (s) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: ChoiceChip(
+                                    label: Text(s['name']),
+                                    selected: s['id'] == selectedSection,
+                                    onSelected: (_) =>
+                                        setState(() => section = s['id']),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
                       const SizedBox(height: 8),
                     ],
                   ),
                 ),
               ),
               if (videos.isEmpty && !store.loading)
-                const SliverFillRemaining(
+                SliverFillRemaining(
                   hasScrollBody: false,
                   child: EmptyState(
                     icon: Icons.video_library_outlined,
-                    title: 'Something good is on the way',
+                    title: browsingPlaylists
+                        ? (channelPlaylists.isEmpty
+                              ? 'No playlists yet'
+                              : 'This playlist is waiting for videos')
+                        : 'Something good is on the way',
                     message:
                         'Published videos will appear here. Pull down to refresh.',
                   ),
@@ -474,7 +716,7 @@ class _HomeState extends State<Home> {
                   itemCount: videos.length,
                   itemBuilder: (_, i) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: VideoCard(
+                    child: CompactVideoCard(
                       video: videos[i],
                       onTap: () => open(videos[i]),
                     ),
@@ -502,6 +744,83 @@ class _HomeState extends State<Home> {
       builder: (_) => VideoScreen(store: store, video: video),
     ),
   );
+}
+
+/// Compact, keyboard-accessible rows with no fixed text height.
+class CompactVideoCard extends StatelessWidget {
+  const CompactVideoCard({super.key, required this.video, required this.onTap});
+  final RecordData video;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) {
+    final views = video['view_count'];
+    final uploaded = Store.uploadTime(video);
+    final date = uploaded.year > 1970
+        ? '${uploaded.year}-${uploaded.month.toString().padLeft(2, '0')}-${uploaded.day.toString().padLeft(2, '0')}'
+        : null;
+    final metadata = [if (views is num) '$views views', ?date].join(' · ');
+    return Semantics(
+      button: true,
+      label: 'Play ${video['title']}. $metadata',
+      onTap: onTap,
+      excludeSemantics: true,
+      child: Card(
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: SizedBox(
+                    width: 100,
+                    height: 64,
+                    child: Image.network(
+                      'https://i.ytimg.com/vi/${video['youtube_id']}/mqdefault.jpg',
+                      fit: BoxFit.cover,
+                      excludeFromSemantics: true,
+                      errorBuilder: (_, e, st) => const ColoredBox(
+                        color: Color(0xFF26331E),
+                        child: Icon(Icons.play_arrow_rounded, color: accent),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        video['title'] ?? 'Video',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                      if (metadata.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          metadata,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class VideoCard extends StatelessWidget {

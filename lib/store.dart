@@ -21,6 +21,7 @@ class Store extends ChangeNotifier {
   bool get signedIn => db.auth.currentUser != null;
   String get userLabel => db.auth.currentUser?.email ?? 'Viewer';
   List<RecordData> channels = [], sections = [], videos = [], quizzes = [];
+  List<RecordData> playlists = [], playlistVideos = [];
   bool loading = false;
   String? error;
   RealtimeChannel? subscription;
@@ -92,6 +93,17 @@ class Store extends ChangeNotifier {
     sections = newSections;
     videos = newVideos;
     quizzes = newQuizzes;
+    playlists = List<RecordData>.from(
+      data['playlists'] ?? [],
+    ).where((p) => channelIds.contains(p['channel_id'])).toList();
+    final playlistIds = playlists.map((p) => p['id']).toSet();
+    playlistVideos = List<RecordData>.from(data['playlist_videos'] ?? [])
+        .where(
+          (p) =>
+              playlistIds.contains(p['playlist_id']) &&
+              videoIds.contains(p['video_id']),
+        )
+        .toList();
   }
 
   Future<List<RecordData>> _catalogRows(
@@ -115,6 +127,73 @@ class Store extends ChangeNotifier {
       );
       all.addAll(page);
       if (page.length < pageSize) return all;
+    }
+  }
+
+  /// YouTube upload time wins; older catalogs retain their publication ordering.
+  static DateTime uploadTime(RecordData video) =>
+      DateTime.tryParse(
+        '${video['youtube_published_at'] ?? video['published_at'] ?? ''}',
+      ) ??
+      DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+
+  List<RecordData> channelUploads(
+    String? channelId, {
+    String? playlistId,
+    String? sectionId,
+  }) {
+    final members = playlistVideos
+        .where((p) => p['playlist_id'] == playlistId)
+        .map((p) => p['video_id'])
+        .toSet();
+    final result = videos
+        .where(
+          (v) =>
+              v['channel_id'] == channelId &&
+              (playlistId == null || members.contains(v['id'])) &&
+              (sectionId == null || v['section_id'] == sectionId),
+        )
+        .toList();
+    result.sort((a, b) {
+      final order = uploadTime(b).compareTo(uploadTime(a));
+      return order != 0 ? order : '${a['id']}'.compareTo('${b['id']}');
+    });
+    return result;
+  }
+
+  List<RecordData> popularUploads(String? channelId) {
+    final result = channelUploads(
+      channelId,
+    ).where((v) => v['view_count'] is num).toList();
+    result.sort((a, b) {
+      final order = (b['view_count'] as num).compareTo(a['view_count'] as num);
+      return order != 0 ? order : uploadTime(b).compareTo(uploadTime(a));
+    });
+    return result;
+  }
+
+  Future<List<RecordData>> _optionalPlaylistRows(String table) async {
+    try {
+      if (table == 'playlists') {
+        return await _catalogRows(table, 'active', true, 'position');
+      }
+      final rows = <RecordData>[];
+      for (var offset = 0; ; offset += 500) {
+        final page = List<RecordData>.from(
+          await db
+              .from(table)
+              .select()
+              .order('playlist_id')
+              .order('video_id')
+              .range(offset, offset + 499),
+        );
+        rows.addAll(page);
+        if (page.length < 500) return rows;
+      }
+    } on PostgrestException catch (e) {
+      // Compatibility with installations that have not applied migration 005.
+      if ({'PGRST205', '42P01'}.contains(e.code)) return [];
+      rethrow;
     }
   }
 
@@ -142,6 +221,8 @@ class Store extends ChangeNotifier {
           ascending: false,
         ),
         _catalogRows('quizzes', 'status', 'published', 'created_at'),
+        _optionalPlaylistRows('playlists'),
+        _optionalPlaylistRows('playlist_videos'),
       ]).timeout(const Duration(seconds: 20));
       if (disposed) return;
       _assign({
@@ -149,6 +230,8 @@ class Store extends ChangeNotifier {
         'sections': results[1],
         'videos': results[2],
         'quizzes': results[3],
+        'playlists': results[4],
+        'playlist_videos': results[5],
       });
       await prefs.setString(
         'catalog:$backendUrl',
@@ -157,6 +240,8 @@ class Store extends ChangeNotifier {
           'sections': sections,
           'videos': videos,
           'quizzes': quizzes,
+          'playlists': playlists,
+          'playlist_videos': playlistVideos,
         }),
       );
     } on PostgrestException catch (exception) {

@@ -24,6 +24,7 @@ try:
     for path in sorted((root/'supabase/migrations').glob('*.sql')):
         sql(path.read_text())
     print(sql((root/'test/sql/quiz_feedback.sql').read_text()).splitlines()[-1])
+    print(sql((root/'test/sql/youtube_sync.sql').read_text()).splitlines()[-1])
     viewer = "set role authenticated; set request.jwt.claim.sub='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; "
     run = json.loads(sql(viewer + "select public.start_quiz_run('22222222-2222-2222-2222-222222222222');").splitlines()[-1])['run_id']
     def concurrent_answer(_):
