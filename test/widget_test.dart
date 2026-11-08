@@ -93,7 +93,7 @@ void main() {
       ];
       await tester.pumpWidget(home());
       await tester.pumpAndSettle();
-      expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+      expect(find.byTooltip('Choose channel'), findsOneWidget);
       store.channels.add({
         'id': 'c2',
         'name': 'CURLYmax Tech',
@@ -101,12 +101,16 @@ void main() {
       });
       await tester.pumpWidget(home());
       await tester.pumpAndSettle();
-      final selector = find.byType(DropdownButtonFormField<String>);
+      final selector = find.byTooltip('Choose channel');
       expect(selector, findsOneWidget);
       await tester.ensureVisible(selector);
       await tester.tap(selector);
       await tester.pumpAndSettle();
       await tester.tap(find.text('CURLYmax Tech').last);
+      await tester.pumpAndSettle();
+      expect(find.text('@curlymaxtech'), findsOneWidget);
+      expect(store.prefs.getString('selected_channel:https://unit.test'), 'c2');
+      await tester.pumpWidget(home());
       await tester.pumpAndSettle();
       expect(find.text('@curlymaxtech'), findsOneWidget);
       expect(find.text('Something good is on the way'), findsOneWidget);
@@ -252,4 +256,37 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('Channel picker shows icons and updates while open', (tester) async {
+    store.channels = [{'id': 'a', 'name': 'Ashiy Ish', 'handle': '@a'}];
+    await tester.pumpWidget(home());
+    await tester.tap(find.byTooltip('Choose channel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose a channel'), findsOneWidget);
+    expect(find.text('AI'), findsWidgets);
+    store.channels.addAll([
+      {'id': 'b', 'name': 'Tech', 'handle': '@tech'},
+      {'id': 'hidden', 'name': 'Inactive', 'active': false},
+    ]);
+    // A catalog refresh notifies the same listener used by the open picker.
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    store.notifyListeners();
+    await tester.pumpAndSettle();
+    expect(find.text('Tech'), findsOneWidget);
+    expect(find.text('Inactive'), findsNothing);
+    await tester.tap(find.text('Tech'));
+    await tester.pumpAndSettle();
+    expect(find.text('@tech'), findsOneWidget);
+    expect(find.text('Choose a channel'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Invalid remembered channel falls back to an active channel', (tester) async {
+    await store.prefs.setString('selected_channel:https://unit.test', 'removed');
+    store.channels = [{'id': 'a', 'name': 'Active', 'handle': '@active'}];
+    await tester.pumpWidget(home());
+    await tester.pumpAndSettle();
+    expect(find.text('@active'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
 }

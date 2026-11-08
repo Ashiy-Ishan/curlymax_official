@@ -110,10 +110,61 @@ class Studio extends StatefulWidget {
   State<Studio> createState() => _StudioState();
 }
 
-class _StudioState extends State<Studio> {
+class _StudioState extends State<Studio> with WidgetsBindingObserver {
   final db = Supabase.instance.client;
   final email = TextEditingController(), password = TextEditingController();
   StreamSubscription<AuthState>? auth;
+  RealtimeChannel? catalogChannel;
+  Timer? refreshTimer, recoveryTimer;
+  bool refreshRunning = false, refreshAgain = false;
+  bool foreground = true;
+
+  bool currentOwner(int generation) => mounted && owner && foreground &&
+      generation == authGeneration && db.auth.currentUser != null;
+
+  void stopUpdates() {
+    refreshTimer?.cancel();
+    recoveryTimer?.cancel();
+    refreshAgain = false;
+    final channel = catalogChannel;
+    catalogChannel = null;
+    if (channel != null) unawaited(db.removeChannel(channel));
+  }
+
+  void queueRefresh() {
+    if (!currentOwner(authGeneration)) return;
+    refreshTimer?.cancel();
+    refreshTimer = Timer(const Duration(milliseconds: 300), () {
+      if (currentOwner(authGeneration)) unawaited(refresh());
+    });
+  }
+
+  void startUpdates(int generation) {
+    if (!currentOwner(generation)) return;
+    final channel = db.channel('studio-catalog-$generation');
+    catalogChannel = channel;
+    for (final table in ['channels', 'sections', 'videos', 'quizzes', 'playlists', 'playlist_videos']) {
+      channel.onPostgresChanges(event: PostgresChangeEvent.all, schema: 'public',
+        table: table, callback: (_) { if (currentOwner(generation)) queueRefresh(); });
+    }
+    channel.subscribe((status, error) {
+      if (status == RealtimeSubscribeStatus.subscribed && currentOwner(generation)) queueRefresh();
+    });
+    // Recover missed websocket events and refresh private notification status.
+    recoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (currentOwner(generation)) queueRefresh();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    foreground = state == AppLifecycleState.resumed;
+    if (foreground) {
+      unawaited(checkOwner());
+    } else {
+      stopUpdates();
+    }
+  }
   bool checking = true, owner = false, busy = false;
   String? error;
   int selected = 0;
@@ -125,12 +176,16 @@ class _StudioState extends State<Studio> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     auth = db.auth.onAuthStateChange.listen((_) => checkOwner());
     checkOwner();
   }
 
   @override
   void dispose() {
+    ++authGeneration;
+    stopUpdates();
+    WidgetsBinding.instance.removeObserver(this);
     auth?.cancel();
     email.dispose();
     password.dispose();
@@ -140,8 +195,10 @@ class _StudioState extends State<Studio> {
   Future<void> checkOwner() async {
     if (!mounted) return;
     final generation = ++authGeneration;
+    stopUpdates();
     setState(() {
       checking = true;
+      busy = false;
       owner = false;
       data = {};
       notifications = [];
@@ -157,7 +214,10 @@ class _StudioState extends State<Studio> {
         data = {};
         notifications = [];
       });
-      if (allowed) await refresh();
+      if (allowed) {
+        startUpdates(generation);
+        await refresh();
+      }
     } catch (e) {
       if (mounted && generation == authGeneration) {
         setState(() {
@@ -170,7 +230,9 @@ class _StudioState extends State<Studio> {
   }
 
   Future<void> refresh() async {
-    if (!mounted || !owner) return;
+    if (!currentOwner(authGeneration)) return;
+    if (refreshRunning) { refreshAgain = true; return; }
+    refreshRunning = true;
     final generation = authGeneration;
     setState(() {
       busy = true;
@@ -187,6 +249,7 @@ class _StudioState extends State<Studio> {
       ]) {
         final rows = <RecordData>[];
         for (var start = 0; ; start += 500) {
+          if (!currentOwner(generation)) return;
           final page = List<RecordData>.from(
             await db.from(t).select().order('id').range(start, start + 499),
           );
@@ -195,18 +258,20 @@ class _StudioState extends State<Studio> {
         }
         loaded[t] = rows;
       }
-      if (!mounted || generation != authGeneration || !owner) return;
+      if (!currentOwner(generation)) return;
       setState(() => data = loaded);
       final events = List<RecordData>.from(
         await db.rpc('owner_notification_status'),
       );
-      if (mounted && generation == authGeneration && owner) {
+      if (currentOwner(generation)) {
         setState(() => notifications = events);
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (currentOwner(generation)) setState(() => error = '$e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      refreshRunning = false;
+      if (mounted && generation == authGeneration) setState(() => busy = false);
+      if (refreshAgain) { refreshAgain = false; queueRefresh(); }
     }
   }
 
@@ -702,6 +767,7 @@ class _ContentFormState extends State<ContentForm> {
     for (final k in [
       'name',
       'handle',
+      'avatar_url',
       'title',
       'description',
       'youtube_url',
@@ -751,7 +817,7 @@ class _ContentFormState extends State<ContentForm> {
             !RegExp(r'^[A-Za-z0-9_-]{10,100}$').hasMatch(v ?? '')) {
           return 'Enter the playlist ID, not its URL';
         }
-        if (k == 'thumbnail_url' &&
+        if ((k == 'thumbnail_url' || k == 'avatar_url') &&
             (v?.isNotEmpty ?? false) &&
             Uri.tryParse(v!)?.scheme != 'https') {
           return 'Use an HTTPS image URL';
@@ -809,8 +875,10 @@ class _ContentFormState extends State<ContentForm> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (t == 'channels' || t == 'sections') field('name', 'Name'),
-                if (t == 'channels')
+                if (t == 'channels') ...[
                   field('handle', 'YouTube handle, e.g. @ashiy_ish'),
+                  field('avatar_url', 'Channel icon HTTPS URL (optional)', required: false),
+                ],
                 if (t == 'sections' || t == 'videos' || t == 'playlists')
                   pick(
                     'Channel',
@@ -917,7 +985,7 @@ class _ContentFormState extends State<ContentForm> {
             final r = <String, dynamic>{};
             for (final k
                 in (t == 'channels'
-                    ? ['name', 'handle']
+                    ? ['name', 'handle', 'avatar_url']
                     : t == 'sections'
                     ? ['name']
                     : t == 'videos'
@@ -932,6 +1000,7 @@ class _ContentFormState extends State<ContentForm> {
                     : ['title'])) {
               r[k] = fields[k]!.text.trim();
             }
+            if (t == 'channels' && fields['avatar_url']!.text.trim().isEmpty) r['avatar_url'] = null;
             if (t == 'channels' || t == 'sections') {
               r['position'] = int.parse(fields['position']!.text);
               r['active'] = active;
