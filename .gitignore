@@ -12,6 +12,7 @@ android/key.properties
 config/live.json
 supabase/.temp/
 supabase/.branches/
+artifacts
 .DS_Store
 
 artifacts/*.apk
