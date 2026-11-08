@@ -1,8 +1,8 @@
-Studio verification — 2026-11-08
+Studio1.1.0+2 verification
 flutter analyze: No issues found
-flutter test: 5 tests passed
-flutter build web --release --dart-define-from-file=config.json: Built build/web
-flutter build apk --debug --dart-define-from-file=config.json: Built build/app/outputs/flutter-apk/app-debug.apk (10.6s Gradle)
-Package: com.curlymax.studio
-SHA256: 316cce4a2ca95cdf11d67614d8cef0491969d6034dabd5f03792acbf901f8536
-No physical Android owner auth/CRUD or live YouTube import was performed.
+flutter test:10 passed
+flutter build apk --debug --dart-define-from-file=config.json: succeeded
+Package com.curlymax.studio
+Atomic one-form draft quiz creation; 2..4 answers; explicit correct selection; optional-answer compaction/remapping; legacy6choices preserved.
+SHA256 3a120f7a13d203d643310f2575348af9b37172580672e8a4b869ab7956600d84
+Live owner form submission not exercised in this task; migration007 required.

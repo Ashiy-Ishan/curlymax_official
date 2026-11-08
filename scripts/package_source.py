@@ -9,6 +9,7 @@ root=Path(__file__).resolve().parents[1]
 output=root/'artifacts/CURLYmax-source.zip'
 skip_dirs={'.git','.dart_tool','.idea','.gradle','.cxx','build','.temp','.branches','.vscode','.aws','.agents','.codex','__pycache__'}
 reports={'quiz-feedback-analyze.txt','quiz-feedback-tests.txt','quiz-feedback-backend.txt','quiz-feedback-android-build.txt','quiz-dashboard-analyze.txt','quiz-dashboard-tests.txt','quiz-feedback-verification.txt','live-flutter-analyze.txt','live-flutter-tests.txt','live-backend-verification.txt','live-sdk-verification.txt','live-android-build.txt','live-apk-signature.txt','live-apk-manifest.txt','live-android-verification.txt'}
+reports.update({'catalog-flutter-analyze.txt','catalog-flutter-tests.txt','catalog-worker-tests.txt','catalog-live-backend.txt','catalog-android-build.txt','catalog-verification.txt','studio-verification.txt'})
 output.parent.mkdir(exist_ok=True)
 # Publish only a completely validated archive; never leave a partial source package.
 with tempfile.TemporaryDirectory(dir=output.parent) as staging:

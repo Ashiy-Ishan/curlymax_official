@@ -32,3 +32,11 @@ Service-account private keys were previously included in conversation/IDE contex
 Cloud project owners and people with SQL-console access remain privileged administrators. Protect those accounts with MFA, limit project/team access, and use a unique strong password and MFA for the publishing account where supported. Anyone with a compromised owner session can perform the actions that owner is authorized to perform.
 
 See `VERIFICATION.md` and the dashboard README for the precise tests, deployment status and device checks still required.
+
+## Account deletion and channel icons
+
+Migration `202611080006_account_controls.sql` adds optional HTTPS channel icons and makes owner membership cascade when its Auth account is deleted. Deleting the publishing account intentionally leaves the catalog without an owner; a trusted project administrator must grant a new authenticated account membership through the SQL console. The UI explains this before deletion.
+
+The `delete-account` Edge Function accepts no target user ID. It verifies the token through Auth `getUser` and `getClaims`, requires matching identities, and checks a recent authentication method on that exact verified JWT. Refreshing a token or signing in on another device does not satisfy this check. It requires the exact body `{"confirmation":"DELETE"}` and calls server-only Auth Admin hard deletion. The app clears local session/cache only after the server confirms success. Existing stateless access JWTs can live until expiry, but deleted accounts lose their private rows, refresh sessions and owner membership; the worker also checks current Auth existence.
+
+Deletion is covered by mocked endpoint tests, repository/UI confirmation tests, and isolated SQL cascade tests using two users. The real owner's account is never deleted as a verification step. Deploy with `supabase functions deploy delete-account --project-ref qsmnvfkrxzwyjugkbpwp --no-verify-jwt`; this function performs its own strict authentication despite the disabled gateway check.

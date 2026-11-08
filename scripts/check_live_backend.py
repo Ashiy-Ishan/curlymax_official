@@ -19,8 +19,8 @@ def request(path,method='GET',body=None):
         try:return e.code,json.loads(raw)
         except json.JSONDecodeError:return e.code,None
 
-tables=['channels','sections','videos','quizzes']
-paths=[f'/rest/v1/{table}?select=id&limit=1' for table in tables]
+tables=['channels','sections','videos','quizzes','playlists','playlist_videos']
+paths=[f'/rest/v1/{table}?select={"playlist_id" if table=="playlist_videos" else "id"}&limit=1' for table in tables]
 with ThreadPoolExecutor(max_workers=4) as pool:results=list(pool.map(request,paths))
 failed=False
 for table,(status,data) in zip(tables,results):
@@ -36,13 +36,18 @@ for table in ['questions','notes','attempts']:
     passed=status in [401,403]
     print(('PASS' if passed else 'FAIL')+f' guest denied {table}: HTTP {status}')
     failed |= not passed
-for name,body in [('submit_quiz',{'quiz':'00000000-0000-0000-0000-000000000000','answers':{}}),('claim_notifications',{})]:
+for name,body in [('submit_quiz',{'quiz':'00000000-0000-0000-0000-000000000000','answers':{}}),('claim_notifications',{}),('owner_youtube_settings',{}),('owner_youtube_analytics',{}),('sync_youtube_targets',{}),('owner_create_quiz',{'video_id':'00000000-0000-0000-0000-000000000000','title':'Permission check','question':{'prompt':'Check','options':['A','B'],'correct_index':0}})]:
     if not schema_ready:
         print(f'SKIP RPC access check {name}: schema is not ready')
         continue
     status,_=request('/rest/v1/rpc/'+name,'POST',body)
     passed=status in [401,403]
     print(('PASS' if passed else 'FAIL')+f' guest denied {name}: HTTP {status}')
+    failed |= not passed
+for name in ['sync-youtube','delete-account']:
+    status,_=request('/functions/v1/'+name,'POST',{})
+    passed=status==401
+    print(('PASS' if passed else 'FAIL')+f' guest denied function {name}: HTTP {status}')
     failed |= not passed
 status,data=request('/auth/v1/settings')
 print('Authentication settings: HTTP',status)

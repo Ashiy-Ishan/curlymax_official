@@ -88,7 +88,7 @@ class _YoutubeWorkspaceState extends State<YoutubeWorkspace> {
               ? 'No sync started. The channel may be disabled or a sync is already running.'
               : failed
               ? 'Sync finished with an issue. Review the channel error below.'
-              : 'Sync completed. Review imported drafts and public totals below.',
+              : 'Sync completed. Review imported videos and public totals below.',
         );
       }
       await load();
@@ -155,7 +155,7 @@ class _YoutubeWorkspaceState extends State<YoutubeWorkspace> {
       ),
       const SizedBox(height: 8),
       const Text(
-        'Bring YouTube uploads and playlists into CURLYmax. Keep editorial control with drafts, then publish when ready.',
+        'Bring public YouTube videos and playlists into CURLYmax automatically. Review and publish quizzes yourself.',
       ),
       const SizedBox(height: 16),
       if (busy) const LinearProgressIndicator(),
@@ -225,7 +225,7 @@ class _YoutubeWorkspaceState extends State<YoutubeWorkspace> {
                 Chip(
                   label: Text(
                     setting['auto_publish'] == true
-                        ? 'Future uploads auto-publish'
+                        ? 'Videos publish automatically'
                         : 'Import as drafts',
                   ),
                 ),
@@ -376,9 +376,9 @@ class _YoutubeSettingsFormState extends State<YoutubeSettingsForm> {
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Publish future uploads automatically'),
+                title: const Text('Publish YouTube videos automatically'),
                 subtitle: const Text(
-                  'First import always creates drafts. When on, later new uploads publish automatically. Existing drafts stay under your control.',
+                  'Public YouTube videos appear automatically when this is on. Quizzes always stay in draft until you review and publish them.',
                 ),
                 value: autoPublish,
                 onChanged: (v) => setState(() => autoPublish = v),

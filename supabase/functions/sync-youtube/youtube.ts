@@ -1,5 +1,17 @@
 // Fixed provider origin/endpoints only. No request-provided URL is fetched.
 type Item = Record<string, any>;
+export function channelLogo(snippet: Item | undefined): string | null {
+  for (const size of ['high', 'medium', 'default']) {
+    const value = snippet?.thumbnails?.[size]?.url;
+    if (typeof value !== 'string' || value.length > 2048) continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.hash &&
+          ['yt3.ggpht.com', 'yt3.googleusercontent.com', 'i.ytimg.com'].includes(url.hostname)) return url.href;
+    } catch { /* Try the next thumbnail size. */ }
+  }
+  return null;
+}
 export async function fetchCatalog(apiKey: string, channelId: string | null, handle: string, fetcher: typeof fetch = fetch, deadline = Date.now() + 100_000) {
   let requests = 0;
   async function get(resource: 'channels' | 'playlistItems' | 'videos' | 'playlists', params: Record<string, string>) {
@@ -25,7 +37,7 @@ export async function fetchCatalog(apiKey: string, channelId: string | null, han
     } while (pageToken);
     return items;
   }
-  const channels = await get('channels', { part: 'contentDetails', ...(channelId ? { id: channelId } : { forHandle: handle }) });
+  const channels = await get('channels', { part: 'snippet,contentDetails', ...(channelId ? { id: channelId } : { forHandle: handle }) });
   const channel = channels.items[0];
   if (!channel || !/^UC[A-Za-z0-9_-]{22}$/.test(channel.id) || !channel.contentDetails?.relatedPlaylists?.uploads) throw new Error('YouTube channel not found');
   const uploads = await pages('playlistItems', { part: 'contentDetails', playlistId: channel.contentDetails.relatedPlaylists.uploads }, 1000);
@@ -49,5 +61,5 @@ export async function fetchCatalog(apiKey: string, channelId: string | null, han
     const members = await pages('playlistItems', { part: 'contentDetails', playlistId: p.id }, 1000);
     playlists.push({ id: p.id, title: p.snippet.title, description: p.snippet.description, thumbnail_url: thumbnail(p.snippet), video_ids: members.map((v) => v.contentDetails?.videoId).filter((v) => typeof v === 'string') });
   }
-  return { channelId: channel.id as string, videos, playlists };
+  return { channelId: channel.id as string, channelLogoUrl: channelLogo(channel.snippet), videos, playlists };
 }

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchCatalog } from '../supabase/functions/sync-youtube/youtube.ts';
+import { channelLogo, fetchCatalog } from '../supabase/functions/sync-youtube/youtube.ts';
 import { authorizeSync } from '../supabase/functions/sync-youtube/auth.ts';
 const channel = 'UCabcdefghijklmnopqrstuv';
 const result = (items, more = {}) => Response.json({ items, ...more });
-const channelResult = () => result([{ id: channel, contentDetails: { relatedPlaylists: { uploads: 'UPLOADS' } } }]);
+const channelResult = () => result([{ id: channel, snippet: { thumbnails: { high: { url: 'https://yt3.googleusercontent.com/channel-logo=s800' } } }, contentDetails: { relatedPlaylists: { uploads: 'UPLOADS' } } }]);
 test('auth rejects guests, invalid tokens and signed-in non-owners; owner and scheduler work', async () => {
   assert.equal(await authorizeSync('', undefined, async () => false, async () => true), 401);
   assert.equal(await authorizeSync('Bearer invalid', undefined, async () => false, async () => true), 401);
@@ -19,7 +19,7 @@ test('paginated uploads, batched metrics and memberships preserve actual publica
     const u = new URL(input); calls.push(u);
     assert.equal(u.origin, 'https://www.googleapis.com'); assert.equal(options.redirect, 'error');
     switch (u.pathname.split('/').at(-1)) {
-      case 'channels': assert.equal(u.searchParams.get('forHandle'), '@ashiy_ish'); return channelResult();
+      case 'channels': assert.equal(u.searchParams.get('forHandle'), '@ashiy_ish'); assert.equal(u.searchParams.get('part'), 'snippet,contentDetails'); return channelResult();
       case 'playlistItems':
         if (u.searchParams.get('playlistId') === 'PL1234567890') return result([{ contentDetails: { videoId: 'newvideo001' } }]);
         return u.searchParams.has('pageToken') ? result([{ contentDetails: { videoId: 'newvideo002' } }, { contentDetails: { videoId: 'newvideo001' } }]) : result([{ contentDetails: { videoId: 'newvideo001' } }], { nextPageToken: 'second' });
@@ -35,6 +35,7 @@ test('paginated uploads, batched metrics and memberships preserve actual publica
     throw Error('Unexpected URL');
   };
   const data = await fetchCatalog('secret-api-key', null, '@ashiy_ish', mock);
+  assert.equal(data.channelLogoUrl, 'https://yt3.googleusercontent.com/channel-logo=s800');
   assert.equal(data.videos.length, 1); assert.equal(data.videos[0].view_count, '9007199254740993');
   assert.equal(data.videos[0].published_at, '2026-01-01T00:00:00Z');
   assert.deepEqual(data.playlists[0].video_ids, ['newvideo001']);
@@ -56,4 +57,15 @@ test('shared deadline stops upstream work before starting another request', asyn
 test('missing channel and malformed response are handled safely', async () => {
   await assert.rejects(fetchCatalog('key', null, 'missing', async () => result([])), { message: 'YouTube channel not found' });
   await assert.rejects(fetchCatalog('key', channel, '', async () => Response.json({ error: 'bad' })), { message: 'YouTube response invalid' });
+});
+test('channel logo uses the best valid Google thumbnail and rejects unsafe URLs', () => {
+  assert.equal(channelLogo({ thumbnails: {
+    high: { url: 'https://yt3.ggpht.com/high' },
+    medium: { url: 'https://yt3.ggpht.com/medium' },
+  } }), 'https://yt3.ggpht.com/high');
+  for (const value of ['http://yt3.ggpht.com/icon', 'https://yt3.ggpht.com.evil.test/icon',
+    'https://user:password@yt3.ggpht.com/icon', 'https://yt3.ggpht.com:444/icon', 'https://yt3.ggpht.com/icon#fragment']) {
+    assert.equal(channelLogo({ thumbnails: { high: { url: value }, default: { url: 'https://i.ytimg.com/fallback' } } }), 'https://i.ytimg.com/fallback');
+  }
+  assert.equal(channelLogo(undefined), null);
 });

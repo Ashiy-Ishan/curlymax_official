@@ -309,4 +309,54 @@ void main() {
       reopened.dispose();
     },
   );
+
+  test(
+    'Account deletion sends no target ID and clears local data only after confirmation',
+    () async {
+      await authenticate();
+      await prefs.setString('pending_destination', 'private destination');
+      respond = (request) async => http.Response(
+        request.url.path.endsWith('/delete-account')
+            ? '{"deleted":true}'
+            : '{}',
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+      await store.deleteAccount();
+      final deletion = requests.singleWhere(
+        (r) => r.url.path.endsWith('/delete-account'),
+      );
+      expect(jsonDecode(deletion.body), {'confirmation': 'DELETE'});
+      expect(store.signedIn, isFalse);
+      expect(prefs.getString('pending_destination'), isNull);
+    },
+  );
+
+  test(
+    'Deletion failure keeps account and local data; guests cannot request deletion',
+    () async {
+      await expectLater(store.deleteAccount(), throwsStateError);
+      expect(requests, isEmpty);
+      await authenticate();
+      await prefs.setString('pending_destination', 'keep');
+      respond = (_) async => http.Response(
+        '{"code":"recent_sign_in_required","error":"Reauthenticate"}',
+        403,
+        headers: {'content-type': 'application/json'},
+      );
+      await expectLater(
+        store.deleteAccount(),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Sign out and sign in'),
+          ),
+        ),
+      );
+      expect(store.signedIn, isTrue);
+      expect(prefs.getString('pending_destination'), 'keep');
+      expect(requests.where((r) => r.url.path.endsWith('/logout')), isEmpty);
+    },
+  );
 }

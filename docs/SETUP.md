@@ -168,3 +168,11 @@ The same separate project also builds the Android owner app **CURLYmax Studio** 
 ## Animated MCQ feedback
 
 See [quiz feedback setup](QUIZ_FEEDBACK.md) for the one-time server upgrade, private explanations, attempt points and animation/accessibility behavior. Existing projects must apply `202611060003_quiz_feedback.sql` before using the new quiz screen.
+
+## YouTube updates, playlists and account controls
+
+See [YouTube setup](YOUTUBE_SYNC.md) for the server API key and 15-minute automatic sync. Public YouTube uploads publish automatically when enabled, including the first import; first-import alerts are silent. Quizzes remain manually reviewed drafts. Studio manages playlists, public metrics, linked quizzes and channel icon URLs. Added active channels appear in the viewer's top avatar picker without another app release.
+
+Apply migrations `202611080005_youtube_sync.sql` and `202611080006_account_controls.sql` in order after the earlier migrations. Deploy `sync-youtube` and `delete-account` with their repository configuration. Settings → Who am I includes logout and **Clear all my data**, which permanently deletes the current sign-in account and its private notes/quiz records after typed confirmation and recent sign-in. See [security details](SECURITY.md).
+
+Apply `202611080007_automatic_youtube_import.sql` for the latest video policy and atomic quiz form. In Studio → Quizzes → Add, choose **Video**, enter **Quiz title**, and provide two to four answer options plus the correct answer. A blank question uses the quiz title. The quiz and its private answer are saved together as a draft; review before publishing. Legacy quizzes with more options remain readable without truncation.

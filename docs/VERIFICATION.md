@@ -1,5 +1,37 @@
 # CURLYmax verification
 
+## Current update — 8 November 2026
+
+### Automatic channel logo follow-up
+
+Viewer **1.3.1+5** adds an explicit automatic-logo fallback. Migration **008** and the updated YouTube worker are deployed. A real sync fetched CURLYmax's channel thumbnail; a guest API read confirmed it is saved and available to older clients, and the public image returned **HTTP 200 / image/jpeg**. Manual overrides are preserved. App tests **29 passed**, combined worker tests **12 passed**, analysis is clean, and the Android test APK was rebuilt. The full isolated SQL suite and Deno worker type check passed. Existing installed apps can display the logo after catalog refresh; another APK install is not required for this fix. Channels without a configured/valid YouTube source retain their manual icon or initials.
+
+### Automatic video policy and quiz editor follow-up
+
+The live YouTube connection and 15-minute scheduler are configured and a successful import is now verified in the database. Applied migration **007**: public uploads publish automatically even on the first import, with silent historical backfill. Existing manual drafts, deliberately unpublished videos and quizzes stay under owner control.
+
+Published the six exact previously imported drafts in one transaction, generating **zero backfill alerts**. A direct guest Data API check now sees **8 videos and 5 playlists** in CURLYmax. Playlist membership counts are 2, 1, 1, 1 and 2. CURLYmax | Tech remains empty because that channel has no configured import.
+
+Studio **1.1.0+2** adds one-form atomic draft quiz creation with two to four options, explicit correct-answer selection, optional explanation and a question that can default to the quiz title. Dashboard analysis is clean and **10 tests passed**. Full isolated SQL tests passed, including invalid-create rollback and owner-only/private-key checks. Hosted guest checks now total **17 passed**. The updated Studio APK was built and its v2 signature verified; this newer Studio version has not been installed or exercised through a real owner login in this follow-up.
+
+New quiz publishing remains manual. Initial draft-backfill instructions and missing-key status in the earlier snapshot below are superseded by this follow-up. Notification delivery for a future upload and live authenticated quiz-form submission still need acceptance testing.
+
+
+Viewer **1.3.0+4** and Android Studio **1.0.0+1** are built and installed on the connected Samsung. The viewer's live Home accessibility hierarchy was checked. Complete picker/settings interaction and authenticated Studio device flows remain acceptance checks. The screen changed during capture, so no final screenshot is claimed. No live account was deleted.
+
+- Flutter analysis is clean; viewer tests **28 passed**, Studio tests **6 passed**.
+- Worker tests **11 passed**; configuration/archive security tests **5 passed**; server setup tests **3 passed**.
+- Isolated PostgreSQL tests passed for guest/two-user/owner permissions, sync imports and deletion cascades. Both functions pass Deno type checking.
+- Live migrations **004–006** were applied, and `sync-youtube` plus `delete-account` were deployed. Migration 003 was already installed. The live database had exactly one owner at preflight.
+- Hosted checks passed for six public catalog tables and guest denial of private data, owner/worker RPCs, sync execution and account deletion: **16 checks passed**. Both Email and Google providers report enabled.
+- Both APK signatures verify with v2 signing. These are debug-signed test APKs, minimum Android API 24, target 37.
+
+YouTube credentials are not yet configured. Follow [YouTube setup](YOUTUBE_SYNC.md), then test the first draft import and a later automatically published upload. Scheduled refresh, live YouTube metrics, future-upload notification, real account deletion, authenticated Studio CRUD, Google callback and full Android/TalkBack interaction are not claimed as verified. A real owner account is never deleted for testing.
+
+Evidence: `artifacts/catalog-verification.txt`, `catalog-flutter-analyze.txt`, `catalog-flutter-tests.txt`, `catalog-worker-tests.txt`, `catalog-live-backend.txt`, `catalog-android-build.txt`, and `studio-verification.txt`.
+
+The sections below are historical and do not override this current configuration record.
+
 ## Notification sender repair — 7 November 2026
 
 The hosted sender was active with both required secrets, but the database scheduler and its Vault settings were missing. Installed pg_cron and pg_net, generated a replacement scheduler credential shared securely between Edge Functions and Vault, and enabled `curlymax-publications` every minute with a 120-second HTTP timeout.

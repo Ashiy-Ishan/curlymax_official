@@ -17,6 +17,8 @@ site_url = "com.curlymax.app://login-callback/"
 additional_redirect_urls = ["com.curlymax.app://login-callback/", "com.curlymax.studio://login-callback/", "http://localhost:7357"]
 [functions.notify-published]
 verify_jwt = false
+[functions.delete-account]
+verify_jwt = false
 
 [inbucket]
 port = 55324

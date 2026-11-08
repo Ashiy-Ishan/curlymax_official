@@ -303,6 +303,39 @@ class Store extends ChangeNotifier {
     _changed();
   }
 
+  Future<void> deleteAccount() async {
+    _requireSignIn();
+    try {
+      final response = await db.functions
+          .invoke('delete-account', body: {'confirmation': 'DELETE'})
+          .timeout(const Duration(seconds: 30));
+      if (response.data is! Map || response.data['deleted'] != true) {
+        throw StateError('The server did not confirm account deletion.');
+      }
+    } on FunctionException catch (error) {
+      final details = error.details;
+      if (details is Map && details['code'] == 'recent_sign_in_required') {
+        throw StateError(
+          'Sign out and sign in again, then delete your account within 15 minutes.',
+        );
+      }
+      throw StateError(
+        'Account deletion was not confirmed. Check your connection and try signing in again.',
+      );
+    }
+    // Auth removes the local session before its sign-out HTTP request. That
+    // request may fail because the server account has just been deleted.
+    try {
+      await db.auth
+          .signOut(scope: SignOutScope.local)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      /* A deleted account no longer has a refresh session to revoke. */
+    }
+    await prefs.clear();
+    _changed();
+  }
+
   void _requireSignIn() {
     if (!signedIn) throw StateError('Sign in required');
   }

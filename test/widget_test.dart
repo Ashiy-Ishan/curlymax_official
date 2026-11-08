@@ -7,6 +7,36 @@ import 'package:curlymax/notifications.dart';
 import 'package:curlymax/store.dart';
 
 void main() {
+  test(
+    'Channel logos prefer a manual override and fall back to the automatic YouTube logo',
+    () {
+      const automatic = 'https://yt3.ggpht.com/channel';
+      expect(channelLogoUrl({'youtube_avatar_url': automatic}), automatic);
+      expect(
+        channelLogoUrl({'avatar_url': '', 'youtube_avatar_url': automatic}),
+        automatic,
+      );
+      expect(
+        channelLogoUrl({
+          'avatar_url': 'https://example.test/manual.png',
+          'youtube_avatar_url': automatic,
+        }),
+        'https://example.test/manual.png',
+      );
+      expect(
+        channelLogoUrl({
+          'avatar_url': 'http://example.test/icon',
+          'youtube_avatar_url': automatic,
+        }),
+        automatic,
+      );
+      expect(
+        channelLogoUrl({'avatar_url': 'https://user:secret@example.test/icon'}),
+        isNull,
+      );
+      expect(channelLogoUrl(null), isNull);
+    },
+  );
   late Store store;
   late SupabaseClient client;
   late Notifications notifications;
@@ -256,8 +286,12 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
-  testWidgets('Channel picker shows icons and updates while open', (tester) async {
-    store.channels = [{'id': 'a', 'name': 'Ashiy Ish', 'handle': '@a'}];
+  testWidgets('Channel picker shows icons and updates while open', (
+    tester,
+  ) async {
+    store.channels = [
+      {'id': 'a', 'name': 'Ashiy Ish', 'handle': '@a'},
+    ];
     await tester.pumpWidget(home());
     await tester.tap(find.byTooltip('Choose channel'));
     await tester.pumpAndSettle();
@@ -280,13 +314,19 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('Invalid remembered channel falls back to an active channel', (tester) async {
-    await store.prefs.setString('selected_channel:https://unit.test', 'removed');
-    store.channels = [{'id': 'a', 'name': 'Active', 'handle': '@active'}];
+  testWidgets('Invalid remembered channel falls back to an active channel', (
+    tester,
+  ) async {
+    await store.prefs.setString(
+      'selected_channel:https://unit.test',
+      'removed',
+    );
+    store.channels = [
+      {'id': 'a', 'name': 'Active', 'handle': '@active'},
+    ];
     await tester.pumpWidget(home());
     await tester.pumpAndSettle();
     expect(find.text('@active'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-
 }

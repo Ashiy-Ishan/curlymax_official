@@ -50,6 +50,17 @@ Deno.serve(async (request) => {
       const catalog = await fetchCatalog(apiKey, claim.data.youtube_channel_id, claim.data.handle, fetch, deadline);
       const applied = await db.rpc('sync_youtube_apply', { target: channelId, token, resolved_channel: catalog.channelId, videos: catalog.videos, playlists: catalog.playlists });
       if (applied.error) throw new Error('Catalog validation or database commit failed');
+      if (catalog.channelLogoUrl) {
+        const logo = await db.rpc('sync_youtube_channel_avatar', {
+          target: channelId, resolved_channel: catalog.channelId, logo_url: catalog.channelLogoUrl,
+        });
+        if (logo.error) {
+          // Content is already committed; do not report the whole import as
+          // failed or return raw database/provider details for an icon issue.
+          results.push({ ...applied.data, logo_updated: false });
+          continue;
+        }
+      }
       results.push(applied.data);
     } catch (error) {
       // Only locally generated safe messages are used; never log provider body,

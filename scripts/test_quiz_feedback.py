@@ -49,6 +49,8 @@ try:
       raise exception 'Stale run remained accessible'; exception when insufficient_privilege then null; end;
     end $$;""")
     print('PASS: atomic owner edits, private explanations and stale-run invalidation')
+    print(sql((root/'test/sql/channel_avatar.sql').read_text()).splitlines()[-1])
+    print(sql((root/'test/sql/account_controls.sql').read_text()).splitlines()[-1])
 
 
 finally:

@@ -1,7 +1,7 @@
 # Studio verification — 8 November 2026
 
 - `flutter analyze`: no issues.
-- `flutter test`: five tests passed, including public-only configuration validation, channel-scoped form fields, quiz draft defaults, and YouTube settings validation at a 390×844 logical-pixel mobile viewport.
+- `flutter test`: ten tests passed, including public-only configuration validation, channel-scoped form fields, quiz draft defaults, channel icon HTTPS validation, atomic draft-form payload, explicit answer selection, legacy six-option preservation, and YouTube settings validation at a 390×844 logical-pixel mobile viewport.
 - `flutter build web --release --dart-define-from-file=config.json`: succeeded.
 - `flutter build apk --debug --dart-define-from-file=config.json`: succeeded. Separate package: `com.curlymax.studio`; artifact: `../artifacts/CURLYmax-Studio.apk`.
 - Native manifest disables backups and cleartext traffic. Native Supabase sessions are not persisted. Google callbacks are restricted to Studio's scheme/host. Backend owner authorization is required in addition to the UI gate.

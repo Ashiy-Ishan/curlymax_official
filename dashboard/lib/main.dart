@@ -119,8 +119,12 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
   bool refreshRunning = false, refreshAgain = false;
   bool foreground = true;
 
-  bool currentOwner(int generation) => mounted && owner && foreground &&
-      generation == authGeneration && db.auth.currentUser != null;
+  bool currentOwner(int generation) =>
+      mounted &&
+      owner &&
+      foreground &&
+      generation == authGeneration &&
+      db.auth.currentUser != null;
 
   void stopUpdates() {
     refreshTimer?.cancel();
@@ -132,7 +136,7 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
   }
 
   void queueRefresh() {
-    if (!currentOwner(authGeneration)) return;
+    if (!currentOwner(authGeneration) || busy) return;
     refreshTimer?.cancel();
     refreshTimer = Timer(const Duration(milliseconds: 300), () {
       if (currentOwner(authGeneration)) unawaited(refresh());
@@ -143,12 +147,28 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
     if (!currentOwner(generation)) return;
     final channel = db.channel('studio-catalog-$generation');
     catalogChannel = channel;
-    for (final table in ['channels', 'sections', 'videos', 'quizzes', 'playlists', 'playlist_videos']) {
-      channel.onPostgresChanges(event: PostgresChangeEvent.all, schema: 'public',
-        table: table, callback: (_) { if (currentOwner(generation)) queueRefresh(); });
+    for (final table in [
+      'channels',
+      'sections',
+      'videos',
+      'quizzes',
+      'playlists',
+      'playlist_videos',
+    ]) {
+      channel.onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table,
+        callback: (_) {
+          if (currentOwner(generation)) queueRefresh();
+        },
+      );
     }
     channel.subscribe((status, error) {
-      if (status == RealtimeSubscribeStatus.subscribed && currentOwner(generation)) queueRefresh();
+      if (status == RealtimeSubscribeStatus.subscribed &&
+          currentOwner(generation)) {
+        queueRefresh();
+      }
     });
     // Recover missed websocket events and refresh private notification status.
     recoveryTimer = Timer.periodic(const Duration(seconds: 30), (_) {
@@ -165,6 +185,7 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
       stopUpdates();
     }
   }
+
   bool checking = true, owner = false, busy = false;
   String? error;
   int selected = 0;
@@ -177,7 +198,16 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    auth = db.auth.onAuthStateChange.listen((_) => checkOwner());
+    auth = db.auth.onAuthStateChange.listen((event) {
+      if (event.event == AuthChangeEvent.tokenRefreshed && owner) {
+        queueRefresh();
+      } else {
+        if (db.auth.currentUser == null && mounted) {
+          Navigator.of(context).popUntil((route) => route.isFirst);
+        }
+        unawaited(checkOwner());
+      }
+    });
     checkOwner();
   }
 
@@ -214,6 +244,7 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
         data = {};
         notifications = [];
       });
+      if (!allowed) Navigator.of(context).popUntil((route) => route.isFirst);
       if (allowed) {
         startUpdates(generation);
         await refresh();
@@ -231,7 +262,10 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
 
   Future<void> refresh() async {
     if (!currentOwner(authGeneration)) return;
-    if (refreshRunning) { refreshAgain = true; return; }
+    if (refreshRunning) {
+      refreshAgain = true;
+      return;
+    }
     refreshRunning = true;
     final generation = authGeneration;
     setState(() {
@@ -271,12 +305,16 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
     } finally {
       refreshRunning = false;
       if (mounted && generation == authGeneration) setState(() => busy = false);
-      if (refreshAgain) { refreshAgain = false; queueRefresh(); }
+      if (refreshAgain) {
+        refreshAgain = false;
+        queueRefresh();
+      }
     }
   }
 
   Future<void> act(Future<void> Function() action) async {
     if (!owner || db.auth.currentUser == null || busy) return;
+    final generation = authGeneration;
     setState(() {
       busy = true;
       error = null;
@@ -285,9 +323,9 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
       await action();
       await refresh();
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (currentOwner(generation)) setState(() => error = '$e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && generation == authGeneration) setState(() => busy = false);
     }
   }
 
@@ -334,7 +372,16 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
     );
     if (result == null) return;
     await act(() async {
-      if (row == null) {
+      if (row == null && t == 'quizzes') {
+        await db.rpc(
+          'owner_create_quiz',
+          params: {
+            'video_id': result['video_id'],
+            'title': result['title'],
+            'question': result['question'],
+          },
+        );
+      } else if (row == null) {
         await db.from(t).insert(result);
       } else {
         await db.from(t).update(result).eq('id', row['id']);
@@ -343,6 +390,8 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
   }
 
   Future<void> questions(RecordData row) async {
+    final generation = authGeneration;
+    if (!currentOwner(generation)) return;
     setState(() {
       busy = true;
       error = null;
@@ -351,15 +400,15 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
       final items = List<RecordData>.from(
         await db.rpc('owner_quiz_questions', params: {'target': row['id']}),
       );
-      if (!mounted) return;
+      if (!mounted || !currentOwner(generation)) return;
       await showDialog<void>(
         context: context,
         builder: (_) => QuestionEditor(db: db, quiz: row, items: items),
       );
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (currentOwner(generation)) setState(() => error = '$e');
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && generation == authGeneration) setState(() => busy = false);
     }
   }
 
@@ -758,13 +807,21 @@ class _ContentFormState extends State<ContentForm> {
   final form = GlobalKey<FormState>();
   final fields = <String, TextEditingController>{};
   String? channel, section, video;
+  int? firstCorrect;
   bool active = true;
+  bool syncManaged = false;
   String status = 'draft';
   @override
   void initState() {
     super.initState();
     final r = widget.row ?? {};
     for (final k in [
+      'prompt',
+      'option1',
+      'option2',
+      'option3',
+      'option4',
+      'explanation',
       'name',
       'handle',
       'avatar_url',
@@ -783,6 +840,7 @@ class _ContentFormState extends State<ContentForm> {
     section = r['section_id'];
     video = r['video_id'];
     active = r['active'] ?? true;
+    syncManaged = r['sync_managed'] == true;
     status = r['status'] ?? 'draft';
   }
 
@@ -877,7 +935,11 @@ class _ContentFormState extends State<ContentForm> {
                 if (t == 'channels' || t == 'sections') field('name', 'Name'),
                 if (t == 'channels') ...[
                   field('handle', 'YouTube handle, e.g. @ashiy_ish'),
-                  field('avatar_url', 'Channel icon HTTPS URL (optional)', required: false),
+                  field(
+                    'avatar_url',
+                    'Channel icon HTTPS URL (optional)',
+                    required: false,
+                  ),
                 ],
                 if (t == 'sections' || t == 'videos' || t == 'playlists')
                   pick(
@@ -909,13 +971,60 @@ class _ContentFormState extends State<ContentForm> {
                     (v) => setState(() => video = v),
                   ),
                 if (t == 'videos' || t == 'quizzes' || t == 'playlists')
-                  field('title', 'Title'),
+                  field('title', t == 'quizzes' ? 'Quiz title' : 'Title'),
+                if (t == 'quizzes' && widget.row == null) ...[
+                  field(
+                    'prompt',
+                    'First question (optional; uses quiz title)',
+                    required: false,
+                  ),
+                  for (var i = 1; i <= 4; i++)
+                    field(
+                      'option$i',
+                      'Answer option $i${i > 2 ? ' (optional)' : ''}',
+                      required: i <= 2,
+                    ),
+                  DropdownButtonFormField<int>(
+                    initialValue: firstCorrect,
+                    decoration: const InputDecoration(
+                      labelText: 'Correct answer (required)',
+                    ),
+                    items: List.generate(
+                      4,
+                      (i) => DropdownMenuItem(
+                        value: i,
+                        child: Text('Answer option ${i + 1}'),
+                      ),
+                    ),
+                    onChanged: (v) => firstCorrect = v,
+                    validator: (v) =>
+                        v == null ||
+                            fields['option${v + 1}']!.text.trim().isEmpty
+                        ? 'Choose a non-empty correct answer'
+                        : null,
+                  ),
+                  const SizedBox(height: 16),
+                  field(
+                    'explanation',
+                    'Explanation (optional)',
+                    required: false,
+                    lines: 3,
+                  ),
+                  const Text(
+                    'Saved as a draft. Review your quiz, then publish it when ready.',
+                  ),
+                ],
                 if (t == 'playlists') ...[
                   const Padding(
                     padding: EdgeInsets.only(bottom: 16),
                     child: Text(
-                      'YouTube sync refreshes playlist metadata and video membership. Visibility stays under your control.',
+                      'When YouTube management is on, sync refreshes playlist membership. Your title, description, thumbnail, visibility and display order stay under your control.',
                     ),
+                  ),
+                  SwitchListTile(
+                    title: const Text('Manage this playlist from YouTube'),
+                    value: syncManaged,
+                    onChanged: (v) => setState(() => syncManaged = v),
                   ),
                   field('youtube_playlist_id', 'YouTube playlist ID'),
                   field('position', 'Sort position'),
@@ -953,7 +1062,8 @@ class _ContentFormState extends State<ContentForm> {
                     onChanged: (v) => setState(() => active = v),
                   ),
                 ],
-                if (t == 'videos' || t == 'quizzes') ...[
+                if (t == 'videos' ||
+                    (t == 'quizzes' && widget.row != null)) ...[
                   DropdownButtonFormField<String>(
                     initialValue: status,
                     decoration: const InputDecoration(
@@ -1000,7 +1110,9 @@ class _ContentFormState extends State<ContentForm> {
                     : ['title'])) {
               r[k] = fields[k]!.text.trim();
             }
-            if (t == 'channels' && fields['avatar_url']!.text.trim().isEmpty) r['avatar_url'] = null;
+            if (t == 'channels' && fields['avatar_url']!.text.trim().isEmpty) {
+              r['avatar_url'] = null;
+            }
             if (t == 'channels' || t == 'sections') {
               r['position'] = int.parse(fields['position']!.text);
               r['active'] = active;
@@ -1010,7 +1122,26 @@ class _ContentFormState extends State<ContentForm> {
             }
             if (t == 'videos') r['section_id'] = section;
             if (t == 'quizzes') r['video_id'] = video;
+            if (t == 'quizzes' && widget.row == null) {
+              final supplied = List.generate(
+                4,
+                (i) => fields['option${i + 1}']!.text.trim(),
+              );
+              final kept = [
+                for (var i = 0; i < 4; i++)
+                  if (supplied[i].isNotEmpty) i,
+              ];
+              r['question'] = {
+                'prompt': fields['prompt']!.text.trim().isEmpty
+                    ? fields['title']!.text.trim()
+                    : fields['prompt']!.text.trim(),
+                'options': [for (final i in kept) supplied[i]],
+                'correct_index': kept.indexOf(firstCorrect!),
+                'explanation': fields['explanation']!.text.trim(),
+              };
+            }
             if (t == 'playlists') {
+              r['sync_managed'] = syncManaged;
               r['active'] = active;
               r['position'] = int.parse(fields['position']!.text);
             }
@@ -1056,7 +1187,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
         children: [
           Text(
             editable
-                ? 'Add 2–6 options per question. The selected answer stays private to owners.'
+                ? 'Use 2–4 options and choose the correct answer. Existing 5–6 option questions are preserved; you cannot add more options to them.'
                 : 'Published quiz: read only. Close and change its status to draft to edit.',
           ),
           if (error != null)
@@ -1113,7 +1244,8 @@ class _QuestionEditorState extends State<QuestionEditor> {
                           ),
                           initialValue: q['correct_index'],
                           decoration: const InputDecoration(
-                            labelText: 'Correct answer',
+                            labelText: 'Correct answer (required)',
+                            hintText: 'Choose an option',
                           ),
                           items: List.generate(
                             choices.length,
@@ -1130,7 +1262,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
                           Wrap(
                             children: [
                               TextButton(
-                                onPressed: saving || choices.length >= 6
+                                onPressed: saving || choices.length >= 4
                                     ? null
                                     : () => setState(
                                         () => q['options'] = [
@@ -1150,7 +1282,7 @@ class _QuestionEditorState extends State<QuestionEditor> {
                                         );
                                         if ((q['correct_index'] ?? 0) >=
                                             choices.length - 1) {
-                                          q['correct_index'] = 0;
+                                          q['correct_index'] = null;
                                         }
                                       }),
                                 child: const Text('Remove last option'),
@@ -1177,8 +1309,8 @@ class _QuestionEditorState extends State<QuestionEditor> {
                   : () => setState(
                       () => items.add({
                         'prompt': '',
-                        'options': ['', ''],
-                        'correct_index': 0,
+                        'options': ['', '', '', ''],
+                        'correct_index': null,
                       }),
                     ),
               icon: const Icon(Icons.add),

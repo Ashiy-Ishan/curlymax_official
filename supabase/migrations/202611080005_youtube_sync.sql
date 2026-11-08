@@ -48,7 +48,7 @@ create table private.youtube_sync_settings (
  channel_id uuid primary key references public.channels on delete cascade,
  section_id uuid not null references public.sections,
  enabled boolean not null default false, auto_publish boolean not null default true,
- last_synced_at timestamptz, last_error text,
+ last_synced_at timestamptz, last_attempted_at timestamptz, last_error text,
  lease uuid, lease_until timestamptz
 );
 create table private.youtube_video_links (
@@ -101,7 +101,7 @@ grant execute on function public.owner_youtube_settings(),public.owner_save_yout
 -- Worker entry points are service-role-only; request JWTs never access private tables.
 create function public.sync_youtube_targets() returns setof uuid
 language sql security definer set search_path='' as $$
- select s.channel_id from private.youtube_sync_settings s join public.channels c on c.id=s.channel_id where s.enabled and c.active order by s.last_synced_at nulls first,s.channel_id
+ select s.channel_id from private.youtube_sync_settings s join public.channels c on c.id=s.channel_id where s.enabled and c.active order by coalesce(s.last_attempted_at,s.last_synced_at) nulls first,s.channel_id
 $$;
 create function public.sync_youtube_claim(target uuid,token uuid) returns jsonb
 language plpgsql security definer set search_path='' as $$
@@ -113,7 +113,7 @@ begin
  select * into s from private.youtube_sync_settings where channel_id=target for update;
  if not found or not s.enabled or s.lease_until>now() then return null; end if;
  if not exists(select 1 from public.sections where id=s.section_id and channel_id=target and active) then raise exception 'Sync section unavailable'; end if;
- update private.youtube_sync_settings set lease=token,lease_until=now()+interval '10 minutes' where channel_id=target;
+ update private.youtube_sync_settings set lease=token,lease_until=now()+interval '10 minutes',last_attempted_at=now() where channel_id=target;
  return jsonb_build_object('channel_id',target,'youtube_channel_id',c.youtube_channel_id,'handle',c.handle,'section_id',s.section_id,'initial',s.last_synced_at is null);
 end $$;
 create function public.sync_youtube_fail(target uuid,token uuid,message text) returns void

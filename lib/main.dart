@@ -271,6 +271,21 @@ Widget label(String text) => Text(
   ),
 );
 
+String? channelLogoUrl(RecordData? channel) {
+  for (final field in ['avatar_url', 'youtube_avatar_url']) {
+    final value = channel?[field];
+    if (value is! String || value.trim().isEmpty) continue;
+    final uri = Uri.tryParse(value.trim());
+    if (uri != null &&
+        uri.scheme == 'https' &&
+        uri.host.isNotEmpty &&
+        uri.userInfo.isEmpty) {
+      return uri.toString();
+    }
+  }
+  return null;
+}
+
 class ChannelAvatar extends StatelessWidget {
   const ChannelAvatar({super.key, required this.channel, this.radius = 18});
   final RecordData? channel;
@@ -279,16 +294,39 @@ class ChannelAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = '${channel?['name'] ?? 'CURLYmax'}'.trim();
     final words = name.split(RegExp(r'\s+')).where((word) => word.isNotEmpty);
-    final initials = words.take(2).map((word) => word.characters.first).join().toUpperCase();
-    final url = channel?['avatar_url'];
-    final fallback = Center(child: Text(initials.isEmpty ? 'C' : initials,
-      style: TextStyle(color: accent, fontSize: radius * .7, fontWeight: FontWeight.w800)));
-    return ExcludeSemantics(child: ClipOval(child: SizedBox.square(
-      dimension: radius * 2,
-      child: ColoredBox(color: const Color(0xFF26331E), child: url is String && Uri.tryParse(url)?.scheme == 'https'
-        ? Image.network(url, fit: BoxFit.cover, errorBuilder: (_, e, st) => fallback)
-        : fallback),
-    )));
+    final initials = words
+        .take(2)
+        .map((word) => word.characters.first)
+        .join()
+        .toUpperCase();
+    final url = channelLogoUrl(channel);
+    final fallback = Center(
+      child: Text(
+        initials.isEmpty ? 'C' : initials,
+        style: TextStyle(
+          color: accent,
+          fontSize: radius * .7,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+    return ExcludeSemantics(
+      child: ClipOval(
+        child: SizedBox.square(
+          dimension: radius * 2,
+          child: ColoredBox(
+            color: const Color(0xFF26331E),
+            child: url is String && Uri.tryParse(url)?.scheme == 'https'
+                ? Image.network(
+                    url,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, e, st) => fallback,
+                  )
+                : fallback,
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -305,7 +343,8 @@ class _HomeState extends State<Home> {
   bool browsingPlaylists = false;
   Store get store => widget.store;
   String get _channelPreference => 'selected_channel:${store.backendUrl}';
-  List<RecordData> get activeChannels => store.channels.where((c) => c['active'] != false).toList();
+  List<RecordData> get activeChannels =>
+      store.channels.where((c) => c['active'] != false).toList();
   @override
   void initState() {
     super.initState();
@@ -313,31 +352,80 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> chooseChannel() async {
-    final chosen = await showModalBottomSheet<String>(context: context,
-      showDragHandle: true, isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(child: AnimatedBuilder(animation: store,
-        builder: (context, _) {
-          final channels = activeChannels;
-          final selected = channels.any((c) => c['id'] == channel) ? channel : channels.firstOrNull?['id'];
-          return ConstrainedBox(constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .75),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Padding(padding: EdgeInsets.fromLTRB(24, 8, 24, 16), child: Text('Choose a channel', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700))),
-              if (channels.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('Channels will appear here when they are published.')),
-              Flexible(child: ListView.builder(shrinkWrap: true, itemCount: channels.length,
-                itemBuilder: (context, index) {
-                  final item = channels[index];
-                  return ListTile(leading: ChannelAvatar(channel: item, radius: 24),
-                    title: Text(item['name'] ?? 'Channel'), subtitle: Text(item['handle'] ?? ''),
-                    selected: item['id'] == selected,
-                    trailing: item['id'] == selected ? const Icon(Icons.check_circle, color: accent) : null,
-                    onTap: () => Navigator.pop(sheetContext, item['id'] as String),
-                  );
-                })),
-            ]));
-        })),
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: AnimatedBuilder(
+          animation: store,
+          builder: (context, _) {
+            final channels = activeChannels;
+            final selected = channels.any((c) => c['id'] == channel)
+                ? channel
+                : channels.firstOrNull?['id'];
+            return ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * .75,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(24, 8, 24, 16),
+                    child: Text(
+                      'Choose a channel',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (channels.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Channels will appear here when they are published.',
+                      ),
+                    ),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: channels.length,
+                      itemBuilder: (context, index) {
+                        final item = channels[index];
+                        return ListTile(
+                          leading: ChannelAvatar(channel: item, radius: 24),
+                          title: Text(item['name'] ?? 'Channel'),
+                          subtitle: Text(item['handle'] ?? ''),
+                          selected: item['id'] == selected,
+                          trailing: item['id'] == selected
+                              ? const Icon(Icons.check_circle, color: accent)
+                              : null,
+                          onTap: () =>
+                              Navigator.pop(sheetContext, item['id'] as String),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
     );
-    if (!mounted || chosen == null || !activeChannels.any((c) => c['id'] == chosen)) return;
-    setState(() { channel = chosen; section = null; playlist = null; });
+    if (!mounted ||
+        chosen == null ||
+        !activeChannels.any((c) => c['id'] == chosen)) {
+      return;
+    }
+    setState(() {
+      channel = chosen;
+      section = null;
+      playlist = null;
+    });
     await store.prefs.setString(_channelPreference, chosen);
   }
 
@@ -392,7 +480,11 @@ class _HomeState extends State<Home> {
             IconButton(
               tooltip: 'Choose channel',
               onPressed: chooseChannel,
-              icon: ChannelAvatar(channel: activeChannels.where((c) => c['id'] == selectedChannel).firstOrNull),
+              icon: ChannelAvatar(
+                channel: activeChannels
+                    .where((c) => c['id'] == selectedChannel)
+                    .firstOrNull,
+              ),
             ),
             IconButton(
               tooltip: 'Account and settings',
@@ -1714,21 +1806,148 @@ class AccountScreen extends StatefulWidget {
 
 class _AccountScreenState extends State<AccountScreen> {
   bool busy = false;
+
+  Future<void> logOut() async {
+    setState(() => busy = true);
+    await attempt(context, () async {
+      await widget.notifications.enable(false).catchError((_) => false);
+      await widget.store.signOut();
+    });
+    if (mounted) setState(() => busy = false);
+  }
+
+  Future<void> confirmDeleteAccount() async {
+    var confirmation = '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, updateDialog) => AlertDialog(
+          title: const Text('Delete your account and data?'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Account: ${widget.store.userLabel}'),
+                const SizedBox(height: 12),
+                const Text(
+                  'This permanently deletes your sign-in account, private notes, quiz history and in-progress quizzes across devices. It cannot be undone. Public videos and quizzes remain.',
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'If this is your publishing account, owner access is also removed. You would need the Supabase console to appoint a new owner.',
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Sign in again first if your last sign-in was more than 15 minutes ago.',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  autofocus: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  decoration: const InputDecoration(
+                    labelText: 'Type DELETE to confirm',
+                  ),
+                  onChanged: (value) =>
+                      updateDialog(() => confirmation = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: confirmation == 'DELETE'
+                  ? () => Navigator.pop(dialogContext, true)
+                  : null,
+              child: const Text('Delete my account'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => busy = true);
+    await attempt(context, () async {
+      await widget.store.deleteAccount();
+      await widget.notifications.enable(false).catchError((_) => false);
+      if (!mounted) return;
+      notice(context, 'Your account and private data were deleted.');
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    });
+    if (mounted) setState(() => busy = false);
+  }
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: Listenable.merge([widget.store, widget.notifications]),
     builder: (context, _) => Scaffold(
-      appBar: AppBar(title: const Text('Your space')),
+      appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           label('A PLACE FOR YOUR CURIOSITY'),
           const SizedBox(height: 20),
-          Text(
-            widget.store.signedIn
-                ? widget.store.userLabel
-                : 'Hello, curious mind.',
-            style: Theme.of(context).textTheme.headlineMedium,
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.account_circle_outlined, size: 40),
+                    title: Text('Who am I'),
+                  ),
+                  Text(
+                    widget.store.signedIn
+                        ? widget.store.userLabel
+                        : 'Guest viewer',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.store.signedIn
+                        ? 'Your private notes and quiz history belong to this account.'
+                        : 'You can watch videos without signing in.',
+                  ),
+                  if (widget.store.signedIn) ...[
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: busy ? null : logOut,
+                          icon: const Icon(Icons.logout),
+                          label: const Text('Log out'),
+                        ),
+                        TextButton.icon(
+                          onPressed: busy ? null : confirmDeleteAccount,
+                          icon: const Icon(Icons.delete_forever_outlined),
+                          label: const Text('Clear all my data'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Theme.of(
+                              context,
+                            ).colorScheme.error,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  if (busy) ...[
+                    const SizedBox(height: 12),
+                    const LinearProgressIndicator(
+                      semanticsLabel: 'Updating your account',
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
           const SizedBox(height: 16),
           if (!widget.store.signedIn)
@@ -1833,21 +2052,10 @@ class _AccountScreenState extends State<AccountScreen> {
                 );
               },
             ),
-            const SizedBox(height: 24),
-            OutlinedButton(
-              onPressed: () => attempt(context, () async {
-                await widget.notifications
-                    .enable(false)
-                    .catchError((_) => false);
-                await widget.store.signOut();
-                if (mounted) setState(() {});
-              }),
-              child: const Text('Sign out'),
-            ),
           ],
           const SizedBox(height: 32),
           const Text(
-            'CURLYmax 1.1\nVideos play through YouTube. Notes are private to your account. Quiz submissions are scored securely on the server.',
+            'CURLYmax 1.3\nVideos play through YouTube. Notes are private to your account. Quiz submissions are scored securely on the server.',
             style: TextStyle(color: Colors.white38, height: 1.6, fontSize: 12),
           ),
         ],
