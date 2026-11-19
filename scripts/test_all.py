@@ -11,6 +11,10 @@ parser.add_argument('--with-database', action='store_true')
 args = parser.parse_args()
 commands = [
     ([sys.executable, 'scripts/secret_scan.py'], root),
+    # Root analysis also visits the nested dashboard package. Prepare both
+    # package configurations first, including on a clean CI checkout.
+    (['flutter', 'pub', 'get'], root),
+    (['flutter', 'pub', 'get'], root / 'dashboard'),
     (['flutter', 'analyze'], root),
     (['flutter', 'test', '--reporter', 'expanded'], root),
     (['flutter', 'analyze'], root / 'dashboard'),
