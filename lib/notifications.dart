@@ -18,10 +18,27 @@ RecordData? notificationDestination(Map<String, dynamic> data) {
   ).hasMatch(id)) {
     return null;
   }
-  return {'kind': data['kind'], 'item_id': id.toLowerCase()};
+  final result = <String, dynamic>{
+    'kind': data['kind'],
+    'item_id': id.toLowerCase(),
+  };
+  final event = data['event_id'];
+  if (event != null) {
+    if (event is! String ||
+        !RegExp(
+          r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+        ).hasMatch(event)) {
+      return null;
+    }
+    result['event_id'] = event.toLowerCase();
+  }
+  return result;
 }
 
 class Notifications extends ChangeNotifier {
+  Notifications({Future<void> Function()? stopTransport})
+    : _stopTransport = stopTransport;
+  final Future<void> Function()? _stopTransport;
   final local = FlutterLocalNotificationsPlugin();
   bool available = false, enabled = false, _disposed = false;
   String status = 'Connecting to notifications…';
@@ -109,6 +126,10 @@ class Notifications extends ChangeNotifier {
       available = true;
       status = 'Notify me about published videos and quizzes';
       _changed();
+      if (!enabled &&
+          (prefs.getBool('notifications_cleanup_pending') ?? false)) {
+        await enable(false);
+      }
       if (enabled) {
         try {
           await FirebaseMessaging.instance.setAutoInitEnabled(true);
@@ -129,12 +150,13 @@ class Notifications extends ChangeNotifier {
   }
 
   Future<void> _foreground(RemoteMessage message) async {
-    final event = message.data['event_id'];
+    final destination = notificationDestination(message.data);
+    final event = destination?['event_id'];
     if (_disposed ||
         !enabled ||
         event == null ||
         _displaying.contains(event) ||
-        notificationDestination(message.data) == null) {
+        destination == null) {
       return;
     }
     _displaying.add(event);
@@ -168,6 +190,46 @@ class Notifications extends ChangeNotifier {
 
   Future<bool> enable(bool value) async {
     final prefs = await SharedPreferences.getInstance();
+    if (!value) {
+      // Respect the local choice before network cleanup. A failed unsubscribe
+      // must never leave foreground delivery enabled or silently restore opt-in.
+      enabled = false;
+      await prefs.setBool('notifications_enabled', false);
+      await prefs.setBool('notifications_cleanup_pending', true);
+      _changed();
+      if (available) {
+        try {
+          if (_stopTransport != null) {
+            await _stopTransport();
+          } else {
+            Object? failure;
+            for (final operation in <Future<void> Function()>[
+              () => FirebaseMessaging.instance.setAutoInitEnabled(false),
+              () => FirebaseMessaging.instance.unsubscribeFromTopic(
+                'curlymax_public',
+              ),
+              () => FirebaseMessaging.instance.deleteToken(),
+            ]) {
+              try {
+                await operation().timeout(const Duration(seconds: 15));
+              } catch (error) {
+                failure = error;
+              }
+            }
+            if (failure != null) {
+              throw StateError('Notification cleanup failed');
+            }
+          }
+          await prefs.setBool('notifications_cleanup_pending', false);
+          status = 'Notifications are off';
+        } catch (_) {
+          status =
+              'Notifications are off in the app. Server cleanup will retry on restart; use Android settings to block all alerts immediately.';
+        }
+      }
+      _changed();
+      return false;
+    }
     if (value) {
       if (!available) throw StateError(status);
       final permission = await FirebaseMessaging.instance.requestPermission();
@@ -181,15 +243,10 @@ class Notifications extends ChangeNotifier {
       await FirebaseMessaging.instance
           .subscribeToTopic('curlymax_public')
           .timeout(const Duration(seconds: 20));
-    } else if (available) {
-      await FirebaseMessaging.instance
-          .unsubscribeFromTopic('curlymax_public')
-          .timeout(const Duration(seconds: 20));
-      await FirebaseMessaging.instance.deleteToken();
-      await FirebaseMessaging.instance.setAutoInitEnabled(false);
     }
     enabled = value;
     await prefs.setBool('notifications_enabled', value);
+    await prefs.setBool('notifications_cleanup_pending', false);
     _changed();
     return value;
   }

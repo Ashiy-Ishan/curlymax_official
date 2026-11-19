@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Read-only checks using the app's public Supabase key. No credentials are printed."""
 import json, sys, urllib.request, urllib.error
+from client_config import load_public_config
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 root=Path(__file__).resolve().parents[1]
-config=json.loads((root/'config/live.json').read_text())
+try:
+    config=load_public_config(root/'config/live.json')
+except ValueError as error:
+    raise SystemExit(str(error)) from None
 base=config['SUPABASE_URL'].rstrip('/')
 key=config.get('SUPABASE_PUBLISHABLE_KEY') or config.get('SUPABASE_ANON_KEY')
 

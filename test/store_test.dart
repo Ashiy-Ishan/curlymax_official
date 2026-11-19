@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -307,6 +308,57 @@ void main() {
       await reopened.clearPending();
       expect(store.pending, isNull);
       reopened.dispose();
+    },
+  );
+
+  test(
+    'An in-flight private read is discarded after the account changes',
+    () async {
+      await authenticate();
+      final pending = Completer<http.Response>();
+      respond = (request) async => request.url.path.endsWith('/notes')
+          ? pending.future
+          : http.Response(
+              '{}',
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+      final reading = store.notes(videoId);
+      final checked = expectLater(
+        reading,
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('Account changed'),
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await client.auth.recoverSession(
+        jsonEncode({
+          'access_token': jwt('authenticated'),
+          'refresh_token': 'second-refresh',
+          'token_type': 'bearer',
+          'expires_in': 3600,
+          'user': {
+            'id': '30000000-0000-0000-0000-000000000003',
+            'aud': 'authenticated',
+            'email': 'second@example.test',
+            'app_metadata': {},
+            'user_metadata': {},
+            'created_at': '2026-11-19T00:00:00Z',
+          },
+        }),
+      );
+      pending.complete(
+        http.Response(
+          '[{"id":"private-a","body":"Must not reach B"}]',
+          200,
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      await checked;
     },
   );
 

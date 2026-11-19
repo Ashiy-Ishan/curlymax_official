@@ -19,3 +19,12 @@ artifacts/*.apk
 artifacts/*.zip
 config/google-services.json
 config/*.local.json
+.signing/
+*.aab
+*.pem
+*.p12
+*.pfx
+**/key.properties
+coverage/
+**/coverage/
+**/__pycache__/

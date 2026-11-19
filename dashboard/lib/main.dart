@@ -105,13 +105,15 @@ bool isPublicKey(String key) {
 }
 
 class Studio extends StatefulWidget {
-  const Studio({super.key});
+  const Studio({super.key, this.client, this.realtimeEnabled = true});
+  final SupabaseClient? client;
+  final bool realtimeEnabled;
   @override
   State<Studio> createState() => _StudioState();
 }
 
 class _StudioState extends State<Studio> with WidgetsBindingObserver {
-  final db = Supabase.instance.client;
+  late final db = widget.client ?? Supabase.instance.client;
   final email = TextEditingController(), password = TextEditingController();
   StreamSubscription<AuthState>? auth;
   RealtimeChannel? catalogChannel;
@@ -145,6 +147,7 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
 
   void startUpdates(int generation) {
     if (!currentOwner(generation)) return;
+    if (!widget.realtimeEnabled) return;
     final channel = db.channel('studio-catalog-$generation');
     catalogChannel = channel;
     for (final table in [
@@ -186,7 +189,7 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
     }
   }
 
-  bool checking = true, owner = false, busy = false;
+  bool checking = true, owner = false, busy = false, ownerChecked = false;
   String? error;
   int selected = 0;
   int authGeneration = 0;
@@ -230,16 +233,19 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
       checking = true;
       busy = false;
       owner = false;
+      ownerChecked = false;
       data = {};
       notifications = [];
       error = null;
     });
     try {
       final allowed =
-          db.auth.currentUser != null && await db.rpc('is_owner') == true;
+          db.auth.currentUser != null &&
+          await db.rpc('is_owner').timeout(const Duration(seconds: 20)) == true;
       if (!mounted || generation != authGeneration) return;
       setState(() {
         owner = allowed;
+        ownerChecked = true;
         checking = false;
         data = {};
         notifications = [];
@@ -252,7 +258,8 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
     } catch (e) {
       if (mounted && generation == authGeneration) {
         setState(() {
-          error = '$e';
+          error =
+              'Could not verify owner access. Check your connection and try again.';
           checking = false;
           owner = false;
         });
@@ -284,9 +291,26 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
         final rows = <RecordData>[];
         for (var start = 0; ; start += 500) {
           if (!currentOwner(generation)) return;
-          final page = List<RecordData>.from(
-            await db.from(t).select().order('id').range(start, start + 499),
-          );
+          List<RecordData> page;
+          try {
+            page = List<RecordData>.from(
+              await db
+                  .from(t)
+                  .select()
+                  .order('id')
+                  .range(start, start + 499)
+                  .timeout(const Duration(seconds: 20)),
+            );
+          } catch (_) {
+            if (t != 'playlists') rethrow;
+            if (currentOwner(generation)) {
+              setState(
+                () => error =
+                    'Playlists could not load. Other catalog content is available; refresh to retry.',
+              );
+            }
+            break;
+          }
           rows.addAll(page);
           if (page.length < 500) break;
         }
@@ -295,7 +319,9 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
       if (!currentOwner(generation)) return;
       setState(() => data = loaded);
       final events = List<RecordData>.from(
-        await db.rpc('owner_notification_status'),
+        await db
+            .rpc('owner_notification_status')
+            .timeout(const Duration(seconds: 20)),
       );
       if (currentOwner(generation)) {
         setState(() => notifications = events);
@@ -485,7 +511,9 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
                       ] else ...[
                         const SizedBox(height: 20),
                         SelectableText(
-                          'This account is not an owner.\nUser ID: ${db.auth.currentUser!.id}\n\nFollow README.md to grant your account owner access.',
+                          ownerChecked
+                              ? 'This account is not an owner.\nUser ID: ${db.auth.currentUser!.id}\n\nFollow README.md to grant your account owner access.'
+                              : 'Owner access could not be verified. Retry when your connection is available.',
                         ),
                         TextButton(
                           onPressed: checkOwner,
@@ -771,15 +799,15 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
   }
 
   Future<void> login() async {
+    if (busy) return;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      await db.auth.signInWithPassword(
-        email: email.text.trim(),
-        password: password.text,
-      );
+      await db.auth
+          .signInWithPassword(email: email.text.trim(), password: password.text)
+          .timeout(const Duration(seconds: 20));
       password.clear();
     } catch (e) {
       if (mounted) setState(() => error = '$e');

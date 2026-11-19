@@ -18,7 +18,7 @@ class ScriptSecurityTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         (self.root / 'scripts').mkdir()
         (self.root / 'artifacts').mkdir()
-        for name in ('package_source.py', 'build_android.py'):
+        for name in ('package_source.py', 'build_android.py', 'client_config.py', 'secret_scan.py'):
             shutil.copy2(SOURCE / name, self.root / 'scripts' / name)
 
     def run_script(self, name, *args):

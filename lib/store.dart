@@ -31,6 +31,7 @@ class Store extends ChangeNotifier {
   bool _refreshAgain = false;
   Completer<void>? _refreshComplete;
   VoidCallback? onAuthenticated;
+  VoidCallback? onPrivateSessionEnded;
 
   void _changed() {
     if (!disposed) notifyListeners();
@@ -46,8 +47,14 @@ class Store extends ChangeNotifier {
       }
     }
     if (disposed) return;
+    var sessionUser = db.auth.currentUser?.id;
     authSubscription = db.auth.onAuthStateChange.listen((event) {
       if (disposed) return;
+      final nextUser = db.auth.currentUser?.id;
+      if (sessionUser != null && sessionUser != nextUser) {
+        onPrivateSessionEnded?.call();
+      }
+      sessionUser = nextUser;
       _changed();
       if (event.event == AuthChangeEvent.signedIn) onAuthenticated?.call();
     });
@@ -275,6 +282,13 @@ class Store extends ChangeNotifier {
   }
 
   Future<void> clearPending() => prefs.remove('pending_destination');
+  Future<void> markNotificationRead(String id) async {
+    _requireSignIn();
+    await db
+        .rpc('mark_notification_read', params: {'event': id})
+        .timeout(const Duration(seconds: 10));
+  }
+
   Future<void> signInWithEmail(String email, String password) async {
     await db.auth.signInWithPassword(email: email.trim(), password: password);
   }
@@ -342,7 +356,8 @@ class Store extends ChangeNotifier {
 
   Future<List<RecordData>> notes(String video) async {
     _requireSignIn();
-    return List<RecordData>.from(
+    final identity = db.auth.currentUser!.id;
+    final result = List<RecordData>.from(
       await db
           .from('notes')
           .select()
@@ -350,6 +365,10 @@ class Store extends ChangeNotifier {
           .order('updated_at', ascending: false)
           .timeout(const Duration(seconds: 20)),
     );
+    if (disposed || db.auth.currentUser?.id != identity) {
+      throw StateError('Account changed. Reopen your private data.');
+    }
+    return result;
   }
 
   Future<void> saveNote(String video, String body, {String? id}) async {
@@ -438,13 +457,18 @@ class Store extends ChangeNotifier {
 
   Future<List<RecordData>> attempts() async {
     _requireSignIn();
-    return List<RecordData>.from(
+    final identity = db.auth.currentUser!.id;
+    final result = List<RecordData>.from(
       await db
           .from('attempts')
           .select()
           .order('submitted_at', ascending: false)
           .timeout(const Duration(seconds: 20)),
     );
+    if (disposed || db.auth.currentUser?.id != identity) {
+      throw StateError('Account changed. Reopen your private data.');
+    }
+    return result;
   }
 
   @override

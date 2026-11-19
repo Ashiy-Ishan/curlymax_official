@@ -1,7 +1,23 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+val releaseProperties = Properties()
+val releasePropertiesFile = rootProject.file("key.properties")
+if (releasePropertiesFile.exists()) {
+    releasePropertiesFile.inputStream().use { releaseProperties.load(it) }
+}
+val releaseRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+if (releaseRequested) {
+    require(releasePropertiesFile.exists()) { "Release signing missing. Run scripts/setup_signing.py first." }
+    listOf("storeFile", "storePassword", "keyPassword", "keyAlias").forEach {
+        require(!releaseProperties.getProperty(it).isNullOrBlank()) { "Release signing configuration is incomplete." }
+    }
+    require(file(releaseProperties.getProperty("storeFile")).isFile) { "Release keystore is missing." }
 }
 
 android {
@@ -29,11 +45,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("upload") {
+            if (releasePropertiesFile.exists()) {
+                storeFile = file(releaseProperties.getProperty("storeFile"))
+                storePassword = releaseProperties.getProperty("storePassword")
+                keyPassword = releaseProperties.getProperty("keyPassword")
+                keyAlias = releaseProperties.getProperty("keyAlias")
+            }
+        }
+    }
     buildTypes {
         release {
-            // This project ships a test APK; configure a private release key before Play distribution.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("upload")
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
         }
     }
 }

@@ -9,6 +9,20 @@ abstract final class AppConfig {
     defaultValue: String.fromEnvironment('SUPABASE_ANON_KEY'),
   );
   static const authRedirect = 'com.curlymax.app://login-callback/';
+  static const privacyPolicyUrl = String.fromEnvironment(
+    'PRIVACY_POLICY_URL',
+    defaultValue:
+        'https://ashiy-ishan.github.io/curlymax_official/privacy.html',
+  );
+  static const accountDeletionUrl = String.fromEnvironment(
+    'ACCOUNT_DELETION_URL',
+    defaultValue:
+        'https://ashiy-ishan.github.io/curlymax_official/delete-account.html',
+  );
+  static const supportEmail = String.fromEnvironment(
+    'SUPPORT_EMAIL',
+    defaultValue: 'curlymax.dev@gmail.com',
+  );
   static const fcmEnabled = bool.fromEnvironment(
     'FCM_ENABLED',
     defaultValue: true,

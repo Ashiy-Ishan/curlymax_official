@@ -5,5 +5,8 @@
   "FIREBASE_API_KEY": "PUBLIC_FIREBASE_ANDROID_API_KEY",
   "FIREBASE_APP_ID": "1:SENDER_ID:android:APP_ID",
   "FIREBASE_SENDER_ID": "SENDER_ID",
-  "FIREBASE_PROJECT_ID": "PROJECT_ID"
+  "FIREBASE_PROJECT_ID": "PROJECT_ID",
+  "PRIVACY_POLICY_URL": "https://ashiy-ishan.github.io/curlymax_official/privacy.html",
+  "ACCOUNT_DELETION_URL": "https://ashiy-ishan.github.io/curlymax_official/delete-account.html",
+  "SUPPORT_EMAIL": "curlymax.dev@gmail.com"
 }

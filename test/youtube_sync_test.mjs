@@ -69,3 +69,36 @@ test('channel logo uses the best valid Google thumbnail and rejects unsafe URLs'
   }
   assert.equal(channelLogo(undefined), null);
 });
+
+test('metrics batch at fifty, missing counts stay null, and private playlists are never fetched', async () => {
+  const ids = Array.from({length: 51}, (_, i) => `video${String(i).padStart(6, '0')}`);
+  const batches = [];
+  const mock = async (input) => {
+    const url = new URL(input);
+    assert.equal(url.origin, 'https://www.googleapis.com');
+    switch (url.pathname.split('/').pop()) {
+      case 'channels': return channelResult();
+      case 'playlistItems':
+        assert.equal(url.searchParams.get('playlistId'), 'UPLOADS');
+        return result(ids.map(id => ({contentDetails: {videoId: id}})));
+      case 'videos': {
+        const batch = url.searchParams.get('id').split(','); batches.push(batch);
+        return result(batch.map(id => ({id, status: {privacyStatus: 'public'}, snippet: {channelId: channel, title: 'Video'}, statistics: {likeCount: 'not-a-number'}})));
+      }
+      case 'playlists': return result([{id: 'PRIVATE', status: {privacyStatus: 'private'}}]);
+    }
+    throw Error('unexpected resource');
+  };
+  const catalog = await fetchCatalog('synthetic-key', channel, '', mock);
+  assert.deepEqual(batches.map(batch => batch.length), [50, 1]);
+  assert.equal(catalog.videos.length, 51);
+  assert.ok(catalog.videos.every(v => v.view_count === null && v.like_count === null && v.comment_count === null));
+  assert.deepEqual(catalog.playlists, []);
+});
+test('sync auth exceptions fail closed and oversized headers skip callbacks', async () => {
+  let verified = 0;
+  assert.equal(await authorizeSync('Bearer ' + 'x'.repeat(8193), undefined, async () => { verified++; return true; }, async () => true), 401);
+  assert.equal(verified, 0);
+  assert.equal(await authorizeSync('Bearer caller', undefined, async () => { throw Error('sensitive'); }, async () => true), 401);
+  assert.equal(await authorizeSync('Bearer caller', undefined, async () => true, async () => { throw Error('sensitive'); }), 401);
+});

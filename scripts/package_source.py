@@ -5,9 +5,10 @@ import zipfile
 import json
 import re
 import tempfile
+from secret_scan import findings
 root=Path(__file__).resolve().parents[1]
 output=root/'artifacts/CURLYmax-source.zip'
-skip_dirs={'.git','.dart_tool','.idea','.gradle','.cxx','build','.temp','.branches','.vscode','.aws','.agents','.codex','__pycache__'}
+skip_dirs={'.git','.dart_tool','.idea','.gradle','.cxx','build','.temp','.branches','.vscode','.aws','.agents','.codex','__pycache__','.signing'}
 reports={'quiz-feedback-analyze.txt','quiz-feedback-tests.txt','quiz-feedback-backend.txt','quiz-feedback-android-build.txt','quiz-dashboard-analyze.txt','quiz-dashboard-tests.txt','quiz-feedback-verification.txt','live-flutter-analyze.txt','live-flutter-tests.txt','live-backend-verification.txt','live-sdk-verification.txt','live-android-build.txt','live-apk-signature.txt','live-apk-manifest.txt','live-android-verification.txt'}
 reports.update({'catalog-flutter-analyze.txt','catalog-flutter-tests.txt','catalog-worker-tests.txt','catalog-live-backend.txt','catalog-android-build.txt','catalog-verification.txt','studio-verification.txt'})
 output.parent.mkdir(exist_ok=True)
@@ -20,14 +21,15 @@ with tempfile.TemporaryDirectory(dir=output.parent) as staging:
         if not path.resolve().is_relative_to(root.resolve()): continue
         if path.name in {'.DS_Store','.flutter-plugins-dependencies'}: continue
         if path.name in {'local.properties','key.properties'} and 'android' in relative.parts: continue
-        if path.name.startswith('.env') or path.suffix in {'.iml','.apk','.zip','.jks','.keystore','.pem','.key','.p12','.pfx'}: continue
+        if path.name.startswith('.env') or path.suffix in {'.iml','.apk','.aab','.zip','.jks','.keystore','.pem','.key','.p12','.pfx'}: continue
         if str(relative) in {'android/local.properties','android/key.properties','config/live.json','config/google-services.json','dashboard/config.json','mobile_dashboard/config.json','dashboard_mobile/config.json'}: continue
         if relative.parts[0]=='artifacts' and path.name not in reports and path.name not in {'live-android-home.png','live-android-icon.png'}: continue
         if relative.parts[0]=='config' and path.name.endswith('.local.json'): continue
         # Fail closed if an accidentally copied credential escaped the path exclusions.
-        if path.suffix in {'.json', '.yaml', '.yml', '.toml', '.dart', '.ts', '.py', '.txt', '.md'}:
+        raw = path.read_bytes()
+        if b'\0' not in raw:
             contents = path.read_text(errors='replace')
-            if re.search(r'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|sb_secret_[A-Za-z0-9_-]{32,}', contents):
+            if findings(contents):
                 raise SystemExit(f'Refusing to package possible private credentials in {relative}')
             if path.suffix == '.json':
                 try:

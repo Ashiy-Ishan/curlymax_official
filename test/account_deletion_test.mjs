@@ -55,3 +55,36 @@ test('provider failure cannot claim success or expose credentials', async () => 
   assert.equal(result.status, 500);
   assert.doesNotMatch(await result.text(), /sensitive-server-key|deleted.*true/);
 });
+
+test('wrong methods and oversized authorization never invoke identity or deletion', async () => {
+  let auth = 0;
+  const { handler, deleted } = fixture({ authenticatedUser: async () => { auth++; throw Error('not called'); } });
+  assert.equal((await handler(new Request('https://example.test', { method: 'GET' }))).status, 405);
+  assert.equal((await handler(new Request('https://example.test', { method: 'OPTIONS' }))).status, 200);
+  assert.equal((await handler(request(undefined, 'x'.repeat(8193)))).status, 401);
+  assert.equal(auth, 0);
+  assert.deepEqual(deleted, []);
+});
+test('auth exceptions, malformed and oversized bodies cannot delete or leak errors', async () => {
+  const failed = fixture({ authenticatedUser: async () => { throw Error('private-provider-detail'); } });
+  const response = await failed.handler(request());
+  assert.equal(response.status, 500);
+  assert.doesNotMatch(await response.text(), /private-provider-detail/);
+  assert.deepEqual(failed.deleted, []);
+  const { handler, deleted } = fixture();
+  for (const [body, status] of [['{bad', 400], ['x'.repeat(1025), 413], ['[]', 400], ['null', 400]]) {
+    const result = await handler(new Request('https://example.test', {method: 'POST', headers: {Authorization: 'Bearer verified-user'}, body}));
+    assert.equal(result.status, status);
+  }
+  assert.deepEqual(deleted, []);
+});
+test('recent authentication boundary and provider false are reported accurately', async () => {
+  for (const [age, status] of [[15 * 60_000, 200], [15 * 60_000 + 1, 403]]) {
+    const { handler } = fixture({ authenticatedUser: async () => ({id: 'user-A', authenticated_at: now - age}) });
+    assert.equal((await handler(request())).status, status);
+  }
+  const { handler } = fixture({ deleteUser: async () => false });
+  const response = await handler(request());
+  assert.equal(response.status, 500);
+  assert.doesNotMatch(await response.text(), /"deleted":true/);
+});

@@ -1,5 +1,7 @@
 name: Flutter checks
 on: [push, pull_request]
+permissions:
+  contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -15,10 +17,16 @@ jobs:
           channel: stable
           cache: true
       - uses: android-actions/setup-android@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - run: sdkmanager 'platforms;android-34' 'platforms;android-35' 'platforms;android-36' 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
       - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
+      - run: python3 scripts/test_all.py
+      - name: Isolated SQL security tests
+        run: |
+          docker pull postgres:15-alpine
+          python3 scripts/test_quiz_feedback.py
       - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
         with:

@@ -11,6 +11,7 @@ import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'store.dart';
 import 'quiz_screen.dart';
 import 'notifications.dart';
+import 'notification_inbox.dart';
 
 const accent = Color(0xFFCEFF5E);
 Future<void> main() async {
@@ -54,6 +55,10 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     if (widget.configError == null) {
+      store.onPrivateSessionEnded = () =>
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) nav.currentState?.popUntil((route) => route.isFirst);
+          });
       store.onAuthenticated = () =>
           WidgetsBinding.instance.addPostFrameCallback((_) => consumePending());
       unawaited(start());
@@ -118,6 +123,9 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
         return;
       }
       await store.clearPending();
+      if (store.signedIn && d['event_id'] is String) {
+        unawaited(store.markNotificationRead(d['event_id']).catchError((_) {}));
+      }
       nav.currentState!.popUntil((r) => r.isFirst);
       nav.currentState!.push(
         MaterialPageRoute(
@@ -184,7 +192,14 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
     ),
     home: widget.configError != null
         ? ConfigurationScreen(details: widget.configError!)
-        : Home(store: store, notifications: notifications),
+        : Home(
+            store: store,
+            notifications: notifications,
+            onNotificationOpen: (destination) async {
+              await store.remember(destination);
+              await consumePending(allowGuest: true);
+            },
+          ),
   );
 }
 
@@ -331,9 +346,15 @@ class ChannelAvatar extends StatelessWidget {
 }
 
 class Home extends StatefulWidget {
-  const Home({super.key, required this.store, required this.notifications});
+  const Home({
+    super.key,
+    required this.store,
+    required this.notifications,
+    this.onNotificationOpen,
+  });
   final Store store;
   final Notifications notifications;
+  final void Function(RecordData)? onNotificationOpen;
   @override
   State<Home> createState() => _HomeState();
 }
@@ -477,6 +498,22 @@ class _HomeState extends State<Home> {
             ),
           ),
           actions: [
+            IconButton(
+              tooltip: 'Notifications',
+              icon: const Icon(Icons.notifications_outlined),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => NotificationInbox(
+                    store: store,
+                    onOpen: (destination) {
+                      (widget.onNotificationOpen ?? widget.notifications.open)
+                          ?.call(destination);
+                    },
+                  ),
+                ),
+              ),
+            ),
             IconButton(
               tooltip: 'Choose channel',
               onPressed: chooseChannel,
@@ -1287,6 +1324,7 @@ class _VideoScreenState extends State<VideoScreen> {
                   animation: widget.store,
                   builder: (_, _) => widget.store.signedIn
                       ? NotesPanel(
+                          key: ValueKey(widget.store.db.auth.currentUser?.id),
                           store: widget.store,
                           video: widget.video['id'],
                         )
@@ -1807,6 +1845,21 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   bool busy = false;
 
+  Future<void> openPolicy(String address) async {
+    final uri = Uri.tryParse(address);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      return;
+    }
+    await attempt(context, () async {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        throw StateError('The browser could not open this page.');
+      }
+    });
+  }
+
   Future<void> logOut() async {
     setState(() => busy = true);
     await attempt(context, () async {
@@ -1891,6 +1944,19 @@ class _AccountScreenState extends State<AccountScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           label('A PLACE FOR YOUR CURIOSITY'),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('Privacy policy'),
+            onTap: () => openPolicy(AppConfig.privacyPolicyUrl),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.manage_accounts_outlined),
+            title: const Text('Account deletion and support'),
+            subtitle: const Text(AppConfig.supportEmail),
+            onTap: () => openPolicy(AppConfig.accountDeletionUrl),
+          ),
           const SizedBox(height: 20),
           Card(
             child: Padding(
