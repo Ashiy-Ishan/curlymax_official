@@ -40,7 +40,7 @@ for table in ['questions','notes','attempts']:
     passed=status in [401,403]
     print(('PASS' if passed else 'FAIL')+f' guest denied {table}: HTTP {status}')
     failed |= not passed
-for name,body in [('submit_quiz',{'quiz':'00000000-0000-0000-0000-000000000000','answers':{}}),('claim_notifications',{}),('owner_youtube_settings',{}),('owner_youtube_analytics',{}),('sync_youtube_targets',{}),('owner_create_quiz',{'video_id':'00000000-0000-0000-0000-000000000000','title':'Permission check','question':{'prompt':'Check','options':['A','B'],'correct_index':0}})]:
+for name,body in [('submit_quiz',{'quiz':'00000000-0000-0000-0000-000000000000','answers':{}}),('owner_import_quiz',{'video_id':'00000000-0000-0000-0000-000000000000','title':'Permission check','items':[]}),('claim_notifications',{}),('owner_youtube_settings',{}),('owner_youtube_analytics',{}),('sync_youtube_targets',{}),('owner_create_quiz',{'video_id':'00000000-0000-0000-0000-000000000000','title':'Permission check','question':{'prompt':'Check','options':['A','B'],'correct_index':0}})]:
     if not schema_ready:
         print(f'SKIP RPC access check {name}: schema is not ready')
         continue

@@ -1,0 +1,11 @@
+{
+  "title": "Video knowledge check",
+  "questions": [
+    {
+      "prompt": "Which option is correct?",
+      "options": ["Option 1", "Option 2", "Option 3", "Option 4"],
+      "correct_index": 0,
+      "explanation": "Explain why the first option is correct."
+    }
+  ]
+}

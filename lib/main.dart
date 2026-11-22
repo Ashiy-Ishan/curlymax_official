@@ -1485,7 +1485,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Make it yours')),
+    appBar: AppBar(title: const Text('Sign in to CURLYmax')),
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
