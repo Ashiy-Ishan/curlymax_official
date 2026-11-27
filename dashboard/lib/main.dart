@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'youtube_workspace.dart';
+import 'quiz_import.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -415,6 +416,34 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> importQuiz() async {
+    final generation = authGeneration;
+    if (!currentOwner(generation)) return;
+    final uploaded = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => QuizImportDialog(
+        videos: data['videos'] ?? <RecordData>[],
+        upload: (videoId, quiz) async {
+          if (!currentOwner(generation)) throw StateError('Sign in again.');
+          await db
+              .rpc(
+                'owner_import_quiz',
+                params: {
+                  'video_id': videoId,
+                  'title': quiz['title'],
+                  'items': quiz['questions'],
+                },
+              )
+              .timeout(const Duration(seconds: 30));
+        },
+      ),
+    );
+    if (mounted && currentOwner(generation) && uploaded == true) {
+      await refresh();
+    }
+  }
+
   Future<void> questions(RecordData row) async {
     final generation = authGeneration;
     if (!currentOwner(generation)) return;
@@ -554,6 +583,12 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('CURLYmax Studio'),
         actions: [
+          if (table == 'quizzes')
+            IconButton(
+              onPressed: busy ? null : importQuiz,
+              icon: const Icon(Icons.upload_file),
+              tooltip: 'Import quiz JSON',
+            ),
           IconButton(
             onPressed: busy ? null : refresh,
             icon: const Icon(Icons.refresh),

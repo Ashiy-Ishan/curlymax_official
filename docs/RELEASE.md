@@ -43,7 +43,7 @@ The static `website/` folder contains the developer identity supplied by the own
    - https://ashiy-ishan.github.io/curlymax_official/delete-account.html
 5. If the repository/domain changes, change the public URL settings in `config/live.json` and rebuild.
 
-These URLs are configured in the current build but publication has not been verified. Browser preview was unavailable in this environment; source and local HTTP checks do not replace visual QA. Do not submit a production release with broken policy links.
+The app bundles an offline privacy-policy screen. Its deletion-request and support actions open an email draft to curlymax.dev@gmail.com; they do not automatically send mail or delete an account. The separate direct deletion action remains under Your account. Public URLs are still needed for the Play listing; publication has not been verified. Browser preview was unavailable in this environment; source and local HTTP checks do not replace visual QA. Do not submit a production release with broken policy links.
 
 ## Play Console checklist
 

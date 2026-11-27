@@ -1,5 +1,7 @@
 # CURLYmax verification
 
+The `artifacts/` paths below are historical local build evidence. Generated reports, screenshots and APKs are ignored by Git and are not included in a fresh clone; rerun the documented checks to create current evidence.
+
 ## Current update — 8 November 2026
 
 ### Automatic channel logo follow-up

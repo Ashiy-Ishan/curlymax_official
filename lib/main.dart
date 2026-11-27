@@ -12,6 +12,7 @@ import 'store.dart';
 import 'quiz_screen.dart';
 import 'notifications.dart';
 import 'notification_inbox.dart';
+import 'privacy_screen.dart';
 
 const accent = Color(0xFFCEFF5E);
 Future<void> main() async {
@@ -1484,7 +1485,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Make it yours')),
+    appBar: AppBar(title: const Text('Sign in to CURLYmax')),
     body: SafeArea(
       child: Center(
         child: ConstrainedBox(
@@ -1845,21 +1846,6 @@ class AccountScreen extends StatefulWidget {
 class _AccountScreenState extends State<AccountScreen> {
   bool busy = false;
 
-  Future<void> openPolicy(String address) async {
-    final uri = Uri.tryParse(address);
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        uri.host.isEmpty ||
-        uri.userInfo.isNotEmpty) {
-      return;
-    }
-    await attempt(context, () async {
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        throw StateError('The browser could not open this page.');
-      }
-    });
-  }
-
   Future<void> logOut() async {
     setState(() => busy = true);
     await attempt(context, () async {
@@ -1948,14 +1934,24 @@ class _AccountScreenState extends State<AccountScreen> {
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.privacy_tip_outlined),
             title: const Text('Privacy policy'),
-            onTap: () => openPolicy(AppConfig.privacyPolicyUrl),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PrivacyScreen()),
+            ),
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.manage_accounts_outlined),
-            title: const Text('Account deletion and support'),
+            title: const Text('Request account deletion by email'),
             subtitle: const Text(AppConfig.supportEmail),
-            onTap: () => openPolicy(AppConfig.accountDeletionUrl),
+            onTap: () => composeSupportEmail(context, deletion: true),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.support_agent),
+            title: const Text('Email support'),
+            subtitle: const Text(AppConfig.supportEmail),
+            onTap: () => composeSupportEmail(context),
           ),
           const SizedBox(height: 20),
           Card(
@@ -1966,8 +1962,25 @@ class _AccountScreenState extends State<AccountScreen> {
                 children: [
                   const ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.account_circle_outlined, size: 40),
+                    leading: Icon(Icons.play_circle_outline, size: 40),
                     title: Text('Who am I'),
+                  ),
+                  Text(
+                    'CURLYmax · @ashiy_ish',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Created by Ashinshana Ishan. CURLYmax brings together '
+                    'videos from @ashiy_ish, video quizzes and private notes '
+                    'so you can watch, learn and keep your ideas in one place.',
+                  ),
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.account_circle_outlined),
+                    title: Text('Your account'),
                   ),
                   Text(
                     widget.store.signedIn
