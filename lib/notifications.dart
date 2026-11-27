@@ -140,6 +140,8 @@ class Notifications extends ChangeNotifier {
           status = 'Can’t reconnect to notifications. Check your connection.';
           _changed();
         }
+      } else if (prefs.getBool('notifications_requested') == true) {
+        await syncPermission();
       }
     } catch (_) {
       available = false;
@@ -191,6 +193,7 @@ class Notifications extends ChangeNotifier {
   Future<bool> enable(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     if (!value) {
+      await prefs.setBool('notifications_requested', false);
       // Respect the local choice before network cleanup. A failed unsubscribe
       // must never leave foreground delivery enabled or silently restore opt-in.
       enabled = false;
@@ -232,6 +235,7 @@ class Notifications extends ChangeNotifier {
     }
     if (value) {
       if (!available) throw StateError(status);
+      await prefs.setBool('notifications_requested', true);
       final permission = await FirebaseMessaging.instance.requestPermission();
       if (permission.authorizationStatus != AuthorizationStatus.authorized) {
         enabled = false;
@@ -249,6 +253,17 @@ class Notifications extends ChangeNotifier {
     await prefs.setBool('notifications_cleanup_pending', false);
     _changed();
     return value;
+  }
+
+  Future<void> syncPermission() async {
+    if (!available || enabled || _disposed) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('notifications_requested') != true) return;
+    final permission = await FirebaseMessaging.instance
+        .getNotificationSettings();
+    if (permission.authorizationStatus == AuthorizationStatus.authorized) {
+      await enable(true);
+    }
   }
 
   @override

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'youtube_workspace.dart';
 import 'quiz_import.dart';
+import 'studio_appearance.dart';
+import 'google_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -41,43 +43,83 @@ Future<void> main() async {
     'SUPABASE_PUBLISHABLE_KEY',
     defaultValue: String.fromEnvironment('SUPABASE_ANON_KEY'),
   );
-  String? error;
+  String? error = studioConfigurationError(url, key);
   try {
-    if (!isValidProjectUrl(url) || !isPublicKey(key)) {
-      throw StateError(
-        'Set a Supabase HTTPS URL and public publishable key in dashboard/config.json.',
+    if (error == null) {
+      await Supabase.initialize(
+        url: url,
+        publishableKey: key,
+        authOptions: FlutterAuthClientOptions(
+          persistSession: kIsWeb,
+          detectSessionInUriPredicate: (uri) => kIsWeb
+              ? uri.origin == Uri.base.origin
+              : uri.scheme == 'com.curlymax.studio' &&
+                    uri.host == 'login-callback',
+        ),
       );
     }
-    await Supabase.initialize(
-      url: url,
-      publishableKey: key,
-      authOptions: FlutterAuthClientOptions(
-        persistSession: kIsWeb,
-        detectSessionInUriPredicate: (uri) => kIsWeb
-            ? uri.origin == Uri.base.origin
-            : uri.scheme == 'com.curlymax.studio' &&
-                  uri.host == 'login-callback',
-      ),
-    );
   } catch (_) {
     error =
-        'Unable to initialize Studio. Check the public Supabase configuration and restart.';
+        'Studio could not start its sign-in service. Configuration is present, '
+        'but session storage or authentication initialization failed. '
+        'Close Studio completely and restart. If this continues, report this message without sharing keys.';
   }
   runApp(
-    MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'CURLYmax Studio',
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        colorSchemeSeed: const Color(0xffc5f35b),
-        scaffoldBackgroundColor: const Color(0xff101410),
-      ),
+    StudioApp(
       home: error == null
           ? const Studio()
-          : Scaffold(body: Center(child: Text(error))),
+          : Scaffold(
+              appBar: AppBar(title: const Text('CURLYmax Studio')),
+              body: SafeArea(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 620),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Studio could not start',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(error),
+                          const SizedBox(height: 20),
+                          const SelectableText(
+                            'From the project root:\npython3 dashboard/scripts/run.py --device macos\n\nFor Android, replace macos with the device ID shown by flutter devices.',
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Configuration is compiled into the app. After changing it, stop and rebuild Studio; hot reload cannot add missing settings. Never use a service-role key.',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
     ),
   );
+}
+
+String? studioConfigurationError(String url, String key) {
+  if (url.isEmpty || key.isEmpty) {
+    return 'This Studio build is missing its public Supabase settings. '
+        'Run Studio using the configured launcher below, or from dashboard/: '
+        'flutter run --dart-define-from-file=config.json';
+  }
+  if (!isValidProjectUrl(url)) {
+    return 'SUPABASE_URL must be an HTTPS project origin without credentials, a path, query or fragment.';
+  }
+  if (!isPublicKey(key)) {
+    return 'Studio requires a public Supabase publishable or anon key. Privileged and malformed keys are rejected.';
+  }
+  return null;
 }
 
 bool isValidProjectUrl(String value) {
@@ -474,8 +516,17 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
     }
     if (!owner) {
       return Scaffold(
+        appBar: AppBar(
+          actions: [
+            IconButton(
+              onPressed: () => showStudioPreferences(context),
+              icon: const Icon(Icons.tune),
+              tooltip: 'Appearance and guide',
+            ),
+          ],
+        ),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 48),
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
           child: Center(
             child: SizedBox(
               width: 440,
@@ -486,6 +537,16 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Image.asset(
+                          'assets/curlymax_logo.png',
+                          width: 72,
+                          height: 72,
+                          excludeFromSemantics: true,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       const Text(
                         'CURLYmax Studio',
                         style: TextStyle(
@@ -494,7 +555,11 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      const Text('Owner control dashboard'),
+                      const Text('Your creator workspace'),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Manage videos, playlists and quizzes. Only the approved owner can access this workspace.',
+                      ),
                       if (!kIsWeb)
                         const Text(
                           'For your security, sign in again after closing the app.',
@@ -503,12 +568,15 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
                         const SizedBox(height: 24),
                         TextField(
                           controller: email,
+                          keyboardType: TextInputType.emailAddress,
+                          autofillHints: const [AutofillHints.email],
                           decoration: const InputDecoration(
                             labelText: 'Owner email',
                           ),
                         ),
                         TextField(
                           controller: password,
+                          autofillHints: const [AutofillHints.password],
                           obscureText: true,
                           onSubmitted: (_) => login(),
                           decoration: const InputDecoration(
@@ -525,12 +593,24 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
                               ? null
                               : () async {
                                   try {
-                                    await db.auth.signInWithOAuth(
-                                      OAuthProvider.google,
-                                      redirectTo: kIsWeb
-                                          ? Uri.base.origin
-                                          : 'com.curlymax.studio://login-callback/',
-                                    );
+                                    if (!kIsWeb &&
+                                        defaultTargetPlatform ==
+                                            TargetPlatform.android) {
+                                      final token =
+                                          await studioGoogleCredentials();
+                                      await db.auth.signInWithIdToken(
+                                        provider: OAuthProvider.google,
+                                        idToken: token.idToken,
+                                        accessToken: token.accessToken,
+                                      );
+                                    } else {
+                                      await db.auth.signInWithOAuth(
+                                        OAuthProvider.google,
+                                        redirectTo: kIsWeb
+                                            ? Uri.base.origin
+                                            : 'com.curlymax.studio://login-callback/',
+                                      );
+                                    }
                                   } catch (e) {
                                     if (mounted) setState(() => error = '$e');
                                   }
@@ -556,7 +636,9 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
                       if (error != null)
                         SelectableText(
                           error!,
-                          style: const TextStyle(color: Colors.orangeAccent),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
                         ),
                     ],
                   ),
@@ -581,9 +663,27 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
             .toList();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CURLYmax Studio'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Image.asset(
+              'assets/curlymax_logo.png',
+              width: 32,
+              height: 32,
+              excludeFromSemantics: true,
+            ),
+            const SizedBox(width: 8),
+            Text(compact ? 'CURLYmax' : 'CURLYmax Studio'),
+          ],
+        ),
         actions: [
-          if (table == 'quizzes')
+          if (table == 'quizzes' && !compact)
+            TextButton.icon(
+              onPressed: busy ? null : importQuiz,
+              icon: const Icon(Icons.upload_file),
+              label: const Text('Import quiz JSON'),
+            ),
+          if (table == 'quizzes' && compact)
             IconButton(
               onPressed: busy ? null : importQuiz,
               icon: const Icon(Icons.upload_file),
@@ -594,10 +694,22 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
           ),
-          IconButton(
-            onPressed: () => db.auth.signOut(),
-            icon: const Icon(Icons.logout),
-            tooltip: 'Sign out',
+          PopupMenuButton<String>(
+            tooltip: 'Workspace options',
+            onSelected: (value) {
+              if (value == 'settings') {
+                showStudioPreferences(context);
+              } else {
+                db.auth.signOut();
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'settings',
+                child: Text('Appearance and guide'),
+              ),
+              PopupMenuItem(value: 'logout', child: Text('Sign out')),
+            ],
           ),
         ],
       ),
@@ -728,8 +840,8 @@ class _StudioState extends State<Studio> with WidgetsBindingObserver {
                               padding: const EdgeInsets.all(12),
                               child: SelectableText(
                                 'Could not complete request: $error',
-                                style: const TextStyle(
-                                  color: Colors.orangeAccent,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
                                 ),
                               ),
                             ),
@@ -1254,7 +1366,10 @@ class _QuestionEditorState extends State<QuestionEditor> {
                 : 'Published quiz: read only. Close and change its status to draft to edit.',
           ),
           if (error != null)
-            Text(error!, style: const TextStyle(color: Colors.orangeAccent)),
+            Text(
+              error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           Expanded(
             child: ListView.builder(
               itemCount: items.length,

@@ -41,14 +41,14 @@ Google sign-in must be enabled in the Supabase console; an Android app cannot en
 
 1. Open Google Cloud Console and select/create your project. You can use the Google Cloud project associated with your Firebase project.
 2. Configure the OAuth consent screen and test users while the consent app is in testing.
-3. Create an OAuth client of type **Web application**.
-4. Add `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` as an authorized redirect URI.
-5. In Supabase Authentication → Sign In / Providers → Google, enable Google and enter the OAuth client ID and secret there.
-6. Ensure `com.curlymax.app://login-callback/` is allowed in Supabase's redirect URLs, then test sign-in from Android.
+3. Create an OAuth client of type **Web application**. Add `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` as an authorized redirect URI, then enter this client's ID and secret only in Supabase Authentication → Providers → Google.
+4. Create a separate OAuth client of type **Android** for package `com.curlymax.app`. Register the local upload certificate SHA-1 and the Play App Signing certificate SHA-1 if distributed through Play. Add SHA-256 when Google requests it.
+5. Put the **Web client ID** (a public identifier ending in `.apps.googleusercontent.com`) in ignored `config/live.json` as `GOOGLE_WEB_CLIENT_ID`. Rebuild the viewer. Do not add the Web client secret to Flutter.
+6. Keep `com.curlymax.app://login-callback/` in Supabase redirect URLs for legacy browser OAuth fallback. Test the local signed build and the Play installed build separately; their certificates can differ.
 
-The app uses Supabase browser OAuth/PKCE. A native Google sign-in client secret is not needed in Flutter. The Android manifest routes callbacks through Supabase's app-links handler and disables Flutter's competing default deep-link router. For public production distribution, verified Android App Links can replace the custom redirect scheme.
+On Android, **Continue with Google** uses Google's native account picker and sends the ID and access tokens to Supabase. Email/password stays inside the app. Google does not allow sign-in inside an arbitrary embedded WebView. If the Web client ID or matching Android OAuth client is missing, use email sign-in until configured. Google Auth Platform branding must be published separately.
 
-References: [Supabase Flutter OAuth](https://supabase.com/docs/reference/dart/auth-signinwithoauth), [redirect URL settings](https://supabase.com/docs/guides/auth/redirect-urls), [Flutter plugin deep links](https://docs.flutter.dev/ui/navigation/deep-linking).
+References: [Supabase native Flutter Google sign-in](https://supabase.com/docs/guides/auth/social-sign-in/auth-google), [Flutter plugin setup](https://pub.dev/packages/google_sign_in), [redirect URL settings](https://supabase.com/docs/guides/auth/redirect-urls).
 
 ## Publish one video and quiz
 
@@ -74,7 +74,7 @@ Add one valid key per question, then set the quiz to `published`. The database r
 
 Viewers submit only question-ID/option-index selections. The `submit_quiz` RPC validates, grades and creates the caller's attempt on the server. The app never calculates a score or downloads answer keys. Retries create separate attempts.
 
-Realtime refreshes an open app after publication. The catalog is also fetched on launch, resume and reconnect, with a recovery poll for missed events. Notes sync through Supabase and can be refreshed from another device. Failed note writes preserve an in-memory draft while the video screen remains open; offline writes are not silently queued.
+Realtime refreshes an open app after publication. The catalog is also fetched on launch, resume and reconnect, with a recovery poll for missed events. Notes sync through Supabase and can be refreshed from another device. The full-page note editor autosaves while it is open and blocks exit on a failed save until the viewer retries or explicitly discards changes. Offline writes are not queued after the app closes.
 
 Prefer unpublishing or setting channel/section `active=false` over deleting rows referenced by viewer notes or attempts.
 
@@ -101,7 +101,7 @@ The live app fetches channels from the database. With two active channels, the s
 
 The importer copies the public Android API key, app ID, sender/project number and project ID into ignored `config/live.json` and sets `FCM_ENABLED=true`. It refuses service-account JSON and checks the Android package name. Flutter initializes Firebase explicitly, so there is no need to add the Gradle Google Services plugin or commit the JSON file. Firebase Authentication is not used; sign-in belongs to Supabase.
 
-The app has FCM auto-init disabled until the viewer opts in. The notification switch asks Android permission and subscribes to `curlymax_public`. Opt-out unsubscribes and deletes the token. This topic carries public announcements only, never private notes, scores or answer keys. Devices need Google Play services for FCM.
+After the first-use guide, the app asks whether the viewer wants alerts. Choosing Allow requests Android permission and automatically subscribes to `curlymax_public` when granted. If permission is granted later in Android Settings, the app reconnects on resume for viewers who previously chose Allow. The Settings switch can turn alerts off; opt-out unsubscribes and deletes the token. This topic carries public announcements only, never private notes, scores or answer keys. Devices need Google Play services for FCM.
 
 ### Configure the server sender
 

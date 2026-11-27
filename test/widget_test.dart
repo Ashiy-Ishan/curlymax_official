@@ -6,6 +6,16 @@ import 'package:curlymax/main.dart';
 import 'package:curlymax/notifications.dart';
 import 'package:curlymax/store.dart';
 
+class NoteStore extends Store {
+  NoteStore(super.prefs, {required super.client});
+  final saved = <String>[];
+  @override
+  Future<String> saveNote(String video, String body, {String? id, bool create = false}) async {
+    saved.add(body);
+    return id!;
+  }
+}
+
 void main() {
   test(
     'Channel logos prefer a manual override and fall back to the automatic YouTube logo',
@@ -196,6 +206,44 @@ void main() {
     expect(store.popularUploads('c').map((v) => v['id']), ['old', 'new']);
   });
 
+  test('Playlist defaults to YouTube positions and can sort by upload time', () {
+    final videos = [
+      {'id': 'new', 'youtube_published_at': '2024-01-01'},
+      {'id': 'old', 'youtube_published_at': '2020-01-01'},
+    ];
+    final membership = [
+      {'playlist_id': 'p', 'video_id': 'old', 'position': 0},
+      {'playlist_id': 'p', 'video_id': 'new', 'position': 1},
+    ];
+    sortPlaylistVideos(videos, membership, 'p', PlaylistOrder.youtube);
+    expect(videos.map((v) => v['id']), ['old', 'new']);
+    sortPlaylistVideos(videos, membership, 'p', PlaylistOrder.newest);
+    expect(videos.map((v) => v['id']), ['new', 'old']);
+    sortPlaylistVideos(videos, membership, 'p', PlaylistOrder.oldest);
+    expect(videos.map((v) => v['id']), ['old', 'new']);
+  });
+
+  testWidgets('Welcome explains guest access and account benefits', (tester) async {
+    var guest = false;
+    await tester.pumpWidget(MaterialApp(home: WelcomeScreen(onGuest: () => guest = true, onSignIn: () {})));
+    expect(find.textContaining('private notes across devices'), findsOneWidget);
+    expect(find.text('Continue as guest'), findsOneWidget);
+    await tester.tap(find.text('Continue as guest'));
+    expect(guest, isTrue);
+  });
+
+  testWidgets('Note editor autosaves checklist content with one stable ID', (tester) async {
+    final noteStore = NoteStore(await SharedPreferences.getInstance(), client: client);
+    await tester.pumpWidget(MaterialApp(home: NoteEditor(store: noteStore, video: 'v')));
+    await tester.tap(find.text('Checklist'));
+    await tester.enterText(find.byType(TextField), '☐ Try this idea');
+    await tester.pump(const Duration(milliseconds: 900));
+    await tester.pump();
+    expect(noteStore.saved, ['☐ Try this idea']);
+    expect(find.text('Saved to your account'), findsOneWidget);
+    noteStore.dispose();
+  });
+
   testWidgets(
     'Mobile playlist selection filters compact cards and exposes play semantics',
     (tester) async {
@@ -224,7 +272,7 @@ void main() {
       ];
       await tester.pumpWidget(home());
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Playlists'));
+      await tester.tap(find.text('Learn'));
       await tester.pumpAndSettle();
       expect(find.byType(CompactVideoCard), findsOneWidget);
       expect(find.text('Learn something'), findsOneWidget);
@@ -247,7 +295,7 @@ void main() {
   ) async {
     await tester.pumpWidget(home());
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Playlists'));
+    await tester.tap(find.text('Learn'));
     await tester.pumpAndSettle();
     expect(find.text('No playlists yet'), findsOneWidget);
     expect(tester.takeException(), isNull);

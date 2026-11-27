@@ -3,6 +3,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:curlymax_dashboard/main.dart';
 
 void main() {
+  test(
+    'Startup distinguishes missing settings from invalid or privileged settings',
+    () {
+      expect(studioConfigurationError('', ''), contains('missing'));
+      expect(
+        studioConfigurationError(
+          'http://example.com',
+          'sb_publishable_example_public_key',
+        ),
+        contains('HTTPS'),
+      );
+      expect(
+        studioConfigurationError(
+          'https://example.supabase.co',
+          'sb_secret_forbidden',
+        ),
+        contains('rejected'),
+      );
+      expect(
+        studioConfigurationError(
+          'https://example.supabase.co',
+          'sb_publishable_example_public_key',
+        ),
+        isNull,
+      );
+    },
+  );
   test('Studio accepts only HTTPS project origins', () {
     expect(isValidProjectUrl('https://example.supabase.co'), isTrue);
     for (final url in [

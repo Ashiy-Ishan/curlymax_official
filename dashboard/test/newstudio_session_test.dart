@@ -74,6 +74,23 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('Desktop dashboard exposes a labeled JSON import action', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await open(tester);
+    await tester.tap(find.text('Quizzes').first);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, 'Import quiz JSON'), findsOneWidget);
+    await tester.tap(find.text('Import quiz JSON'));
+    await tester.pumpAndSettle();
+    expect(find.text('Quiz JSON'), findsOneWidget);
+    expect(find.text('Validate JSON'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets(
     'Failed owner request stays closed and is not labeled a denied owner',
     (tester) async {

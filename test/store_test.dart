@@ -176,8 +176,11 @@ void main() {
 
   test('Notes are sent to Supabase without a client-supplied owner', () async {
     await authenticate();
-    respond = (r) async => http.Response('', 201);
-    await store.saveNote(videoId, '  A private thought  ');
+    respond = (r) async => http.Response(
+      jsonEncode({'id': 'note-id'}), 201,
+      headers: {'content-type': 'application/json'},
+    );
+    expect(await store.saveNote(videoId, '  A private thought  '), 'note-id');
     expect(requests.single.method, 'POST');
     expect(requests.single.url.path, '/rest/v1/notes');
     expect(jsonDecode(requests.single.body), {

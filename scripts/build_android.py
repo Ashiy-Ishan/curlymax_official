@@ -23,6 +23,8 @@ if args.format == 'aab' and not args.release:
 if args.release:
     if not (root / 'android/key.properties').is_file():
         raise SystemExit('Run python3 scripts/setup_signing.py first. Release builds never use debug signing.')
+    if not config.get('GOOGLE_WEB_CLIENT_ID'):
+        raise SystemExit('Set the public GOOGLE_WEB_CLIENT_ID and Android OAuth certificate fingerprints before a release build; native Google sign-in would otherwise fail.')
     for field in ('PRIVACY_POLICY_URL', 'ACCOUNT_DELETION_URL', 'SUPPORT_EMAIL'):
         if not config.get(field):
             raise SystemExit(f'Set public {field} in the client config before a release build.')

@@ -71,6 +71,23 @@ class ReleaseSecurityTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('setup_signing.py', result.stderr)
 
+    def test_release_requires_native_google_configuration_before_flutter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'scripts').mkdir()
+            (root / 'android').mkdir()
+            (root / 'android/key.properties').write_text('test-only')
+            for name in ('build_android.py', 'client_config.py'):
+                shutil.copy2(Path(__file__).parent / name, root / 'scripts' / name)
+            config = root / 'client.json'
+            config.write_text(json.dumps({
+                'SUPABASE_URL': 'https://example.supabase.co',
+                'SUPABASE_PUBLISHABLE_KEY': 'sb_publishable_synthetic_public_value',
+            }))
+            result = subprocess.run([sys.executable, str(root / 'scripts/build_android.py'), '--release', '--config', str(config)], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('GOOGLE_WEB_CLIENT_ID', result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()

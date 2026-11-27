@@ -9,6 +9,7 @@ abstract final class AppConfig {
     defaultValue: String.fromEnvironment('SUPABASE_ANON_KEY'),
   );
   static const authRedirect = 'com.curlymax.app://login-callback/';
+  static const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
   static const privacyPolicyUrl = String.fromEnvironment(
     'PRIVACY_POLICY_URL',
     defaultValue:

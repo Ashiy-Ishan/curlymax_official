@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'config.dart';
 import 'brand.dart';
+import 'app_theme.dart';
+import 'user_guide.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,7 +17,7 @@ import 'notifications.dart';
 import 'notification_inbox.dart';
 import 'privacy_screen.dart';
 
-const accent = Color(0xFFCEFF5E);
+const accent = Color(0xFF99C1DE);
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([
@@ -49,7 +52,10 @@ class CurlyApp extends StatefulWidget {
 class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
   final nav = GlobalKey<NavigatorState>();
   final notifications = Notifications();
+  late final appearance = AppAppearance(widget.store.prefs);
   bool ready = false, routing = false;
+  bool enteredAsGuest = false;
+  bool guideSeen = false;
   Store get store => widget.store;
   @override
   void initState() {
@@ -58,15 +64,22 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
     if (widget.configError == null) {
       store.onPrivateSessionEnded = () =>
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) nav.currentState?.popUntil((route) => route.isFirst);
+            if (mounted) {
+              setState(() => enteredAsGuest = false);
+              nav.currentState?.popUntil((route) => route.isFirst);
+            }
           });
       store.onAuthenticated = () =>
-          WidgetsBinding.instance.addPostFrameCallback((_) => consumePending());
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() {});
+            consumePending();
+          });
       unawaited(start());
     }
   }
 
   Future<void> start() async {
+    guideSeen = store.prefs.getBool('viewer_guide_seen') ?? false;
     await store.init();
     ready = true;
     await notifications.init((d) async {
@@ -74,6 +87,59 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
       if (ready) await consumePending(allowGuest: true);
     });
     await consumePending(allowGuest: true);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> finishGuide() async {
+    await store.prefs.setBool('viewer_guide_seen', true);
+    if (!mounted) return;
+    setState(() => guideSeen = true);
+    if (!store.prefs.containsKey('notification_offer_seen') &&
+        notifications.available) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => offerNotifications());
+    }
+  }
+
+  Future<void> offerNotifications() async {
+    if (!mounted || !notifications.available) return;
+    await store.prefs.setBool('notification_offer_seen', true);
+    final chosen = await showDialog<bool>(
+      context: nav.currentContext ?? context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Get new video and quiz alerts?'),
+        content: const Text(
+          'Allow CURLYmax to notify you when new videos or quizzes are published. Change this any time in Settings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Allow alerts'),
+          ),
+        ],
+      ),
+    );
+    if (chosen == true && mounted) {
+      try {
+        final enabled = await notifications.enable(true);
+        if (!enabled && mounted) {
+          notice(
+            nav.currentContext ?? context,
+            'Notification permission was not granted. You can enable it in Settings.',
+          );
+        }
+      } catch (_) {
+        if (mounted) {
+          notice(
+            nav.currentContext ?? context,
+            'Could not start alerts. Check your connection and retry in Settings.',
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -81,6 +147,7 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && ready) {
       unawaited(store.refresh());
       unawaited(consumePending());
+      unawaited(notifications.syncPermission().catchError((_) {}));
     }
   }
 
@@ -147,60 +214,115 @@ class _CurlyAppState extends State<CurlyApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     notifications.dispose();
+    appearance.dispose();
     store.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'CURLYmax',
-    navigatorKey: nav,
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: accent,
-        brightness: Brightness.dark,
-        primary: accent,
-        surface: const Color(0xFF121611),
-      ),
-      scaffoldBackgroundColor: const Color(0xFF0B0E0B),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF0B0E0B),
-        surfaceTintColor: Colors.transparent,
-      ),
-      cardTheme: CardThemeData(
-        color: const Color(0xFF191F18),
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-      ),
-      textTheme: const TextTheme(
-        headlineLarge: TextStyle(
-          fontWeight: FontWeight.w800,
-          letterSpacing: -1.4,
-        ),
-        headlineMedium: TextStyle(
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.7,
-        ),
-        titleLarge: TextStyle(fontWeight: FontWeight.w700),
+  Widget build(BuildContext context) => AppearanceScope(
+    appearance: appearance,
+    child: ValueListenableBuilder<ThemeMode>(
+      valueListenable: appearance,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'CURLYmax',
+        navigatorKey: nav,
+        debugShowCheckedModeBanner: false,
+        theme: curlyTheme(Brightness.light),
+        darkTheme: curlyTheme(Brightness.dark),
+        themeMode: mode,
+        home: widget.configError != null
+            ? ConfigurationScreen(details: widget.configError!)
+            : !store.signedIn && !enteredAsGuest
+            ? WelcomeScreen(
+                onGuest: () => setState(() => enteredAsGuest = true),
+                onSignIn: () => nav.currentState?.push(
+                  MaterialPageRoute(
+                    builder: (_) => AuthScreen(
+                      store: store,
+                      onGuest: () {
+                        setState(() => enteredAsGuest = true);
+                        nav.currentState?.pop();
+                      },
+                    ),
+                  ),
+                ),
+              )
+            : !guideSeen
+            ? UserGuide(onDone: finishGuide)
+            : Home(
+                store: store,
+                notifications: notifications,
+                onNotificationOpen: (destination) async {
+                  await store.remember(destination);
+                  await consumePending(allowGuest: true);
+                },
+              ),
       ),
     ),
-    home: widget.configError != null
-        ? ConfigurationScreen(details: widget.configError!)
-        : Home(
-            store: store,
-            notifications: notifications,
-            onNotificationOpen: (destination) async {
-              await store.remember(destination);
-              await consumePending(allowGuest: true);
-            },
+  );
+}
+
+class WelcomeScreen extends StatelessWidget {
+  const WelcomeScreen({
+    super.key,
+    required this.onGuest,
+    required this.onSignIn,
+  });
+  final VoidCallback onGuest, onSignIn;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Center(child: CurlymaxMark(size: 104)),
+                const SizedBox(height: 28),
+                Text(
+                  'Watch. Learn. Keep going.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Explore CURLYmax videos for free. Sign in to save private notes across devices and take video quizzes.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                FilledButton.icon(
+                  onPressed: onSignIn,
+                  icon: const Icon(Icons.login),
+                  label: const Text('Sign in or create account'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: onGuest,
+                  child: const Text('Continue as guest'),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Guests can watch published videos. Notes and quizzes need an account.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           ),
+        ),
+      ),
+    ),
   );
 }
 
@@ -277,13 +399,15 @@ Future<void> attempt(
   }
 }
 
-Widget label(String text) => Text(
-  text,
-  style: const TextStyle(
-    color: accent,
-    fontSize: 12,
-    fontWeight: FontWeight.w800,
-    letterSpacing: 2,
+Widget label(String text) => Builder(
+  builder: (context) => Text(
+    text,
+    style: TextStyle(
+      color: Theme.of(context).colorScheme.primary,
+      fontSize: 12,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 2,
+    ),
   ),
 );
 
@@ -320,7 +444,7 @@ class ChannelAvatar extends StatelessWidget {
       child: Text(
         initials.isEmpty ? 'C' : initials,
         style: TextStyle(
-          color: accent,
+          color: Theme.of(context).colorScheme.primary,
           fontSize: radius * .7,
           fontWeight: FontWeight.w800,
         ),
@@ -363,6 +487,7 @@ class Home extends StatefulWidget {
 class _HomeState extends State<Home> {
   String? channel, section, playlist;
   bool browsingPlaylists = false;
+  PlaylistOrder playlistOrder = PlaylistOrder.youtube;
   Store get store => widget.store;
   String get _channelPreference => 'selected_channel:${store.backendUrl}';
   List<RecordData> get activeChannels =>
@@ -423,7 +548,10 @@ class _HomeState extends State<Home> {
                           subtitle: Text(item['handle'] ?? ''),
                           selected: item['id'] == selected,
                           trailing: item['id'] == selected
-                              ? const Icon(Icons.check_circle, color: accent)
+                              ? Icon(
+                                  Icons.check_circle,
+                                  color: Theme.of(context).colorScheme.primary,
+                                )
                               : null,
                           onTap: () =>
                               Navigator.pop(sheetContext, item['id'] as String),
@@ -479,9 +607,17 @@ class _HomeState extends State<Home> {
               playlistId: browsingPlaylists ? selectedPlaylist : null,
               sectionId: browsingPlaylists ? null : selectedSection,
             );
+      if (browsingPlaylists && selectedPlaylist != null) {
+        sortPlaylistVideos(
+          videos,
+          store.playlistVideos,
+          selectedPlaylist,
+          playlistOrder,
+        );
+      }
       return Scaffold(
         appBar: AppBar(
-          title: const Text.rich(
+          title: Text.rich(
             TextSpan(
               children: [
                 TextSpan(
@@ -493,12 +629,28 @@ class _HomeState extends State<Home> {
                 ),
                 TextSpan(
                   text: 'max',
-                  style: TextStyle(color: accent, fontWeight: FontWeight.w400),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w400,
+                  ),
                 ),
               ],
             ),
           ),
           actions: [
+            IconButton(
+              tooltip: 'Search learning content',
+              icon: const Icon(Icons.search),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SearchScreen(
+                    store: store,
+                    selectedChannel: selectedChannel,
+                  ),
+                ),
+              ),
+            ),
             IconButton(
               tooltip: 'Notifications',
               icon: const Icon(Icons.notifications_outlined),
@@ -522,19 +674,6 @@ class _HomeState extends State<Home> {
                 channel: activeChannels
                     .where((c) => c['id'] == selectedChannel)
                     .firstOrNull,
-              ),
-            ),
-            IconButton(
-              tooltip: 'Account and settings',
-              icon: const Icon(Icons.person_outline_rounded),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AccountScreen(
-                    store: store,
-                    notifications: widget.notifications,
-                  ),
-                ),
               ),
             ),
           ],
@@ -567,7 +706,9 @@ class _HomeState extends State<Home> {
                                 .where((c) => c['id'] == selectedChannel)
                                 .firstOrNull?['handle'] ??
                             'Your next idea starts here',
-                        style: const TextStyle(color: Colors.white60),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(height: 24),
                       if (store.loading)
@@ -593,24 +734,7 @@ class _HomeState extends State<Home> {
                           ),
                         ),
                       const SizedBox(height: 16),
-                      SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment(
-                            value: false,
-                            label: Text('Home'),
-                            icon: Icon(Icons.home_outlined),
-                          ),
-                          ButtonSegment(
-                            value: true,
-                            label: Text('Playlists'),
-                            icon: Icon(Icons.playlist_play),
-                          ),
-                        ],
-                        selected: {browsingPlaylists},
-                        onSelectionChanged: (value) =>
-                            setState(() => browsingPlaylists = value.first),
-                      ),
-                      const SizedBox(height: 24),
+                      if (browsingPlaylists) const SizedBox(height: 12),
                       if (!browsingPlaylists && channelVideos.isNotEmpty) ...[
                         label('LATEST UPLOAD'),
                         const SizedBox(height: 12),
@@ -630,15 +754,23 @@ class _HomeState extends State<Home> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        const Text(
+                        Text(
                           'Popular on this channel · ranked by total YouTube views',
-                          style: TextStyle(color: Colors.white60),
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         if (popular.isEmpty)
-                          const Text(
+                          Text(
                             'View counts are not available yet.',
-                            style: TextStyle(color: Colors.white60),
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ...popular.map(
                           (video) => Padding(
@@ -689,8 +821,12 @@ class _HomeState extends State<Home> {
                                           ),
                                           side: BorderSide(
                                             color: p['id'] == selectedPlaylist
-                                                ? accent
-                                                : Colors.white12,
+                                                ? Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary
+                                                : Theme.of(
+                                                    context,
+                                                  ).colorScheme.outlineVariant,
                                             width: 2,
                                           ),
                                         ),
@@ -760,8 +896,10 @@ class _HomeState extends State<Home> {
                                                     const SizedBox(height: 6),
                                                     Text(
                                                       '${members.length} videos',
-                                                      style: const TextStyle(
-                                                        color: Colors.white60,
+                                                      style: TextStyle(
+                                                        color: Theme.of(context)
+                                                            .colorScheme
+                                                            .onSurfaceVariant,
                                                       ),
                                                     ),
                                                   ],
@@ -788,9 +926,28 @@ class _HomeState extends State<Home> {
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              const Text(
-                                'Newest uploads first',
-                                style: TextStyle(color: Colors.white60),
+                              DropdownButton<PlaylistOrder>(
+                                isExpanded: true,
+                                value: playlistOrder,
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() => playlistOrder = value);
+                                  }
+                                },
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: PlaylistOrder.youtube,
+                                    child: Text('YouTube playlist order'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: PlaylistOrder.newest,
+                                    child: Text('Newest first'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: PlaylistOrder.oldest,
+                                    child: Text('Oldest first'),
+                                  ),
+                                ],
                               ),
                             ],
                           ],
@@ -853,17 +1010,74 @@ class _HomeState extends State<Home> {
                   ),
                 ),
               ),
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: Padding(
                   padding: EdgeInsets.fromLTRB(24, 0, 24, 28),
                   child: Text(
                     'Made for curious minds.  /  CURLYmax',
-                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ),
             ],
           ),
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: browsingPlaylists ? 1 : 0,
+          onDestinationSelected: (index) {
+            if (index < 2) {
+              setState(() => browsingPlaylists = index == 1);
+            } else if (index == 2) {
+              if (!store.signedIn) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => AuthScreen(store: store)),
+                );
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AllNotesScreen(store: store),
+                  ),
+                );
+              }
+            } else {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => AccountScreen(
+                    store: store,
+                    notifications: widget.notifications,
+                  ),
+                ),
+              );
+            }
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Home',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.playlist_play_outlined),
+              selectedIcon: Icon(Icons.playlist_play),
+              label: 'Learn',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.edit_note_outlined),
+              selectedIcon: Icon(Icons.edit_note),
+              label: 'Notes',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings),
+              label: 'Settings',
+            ),
+          ],
         ),
       );
     },
@@ -874,6 +1088,266 @@ class _HomeState extends State<Home> {
       builder: (_) => VideoScreen(store: store, video: video),
     ),
   );
+}
+
+enum PlaylistOrder { youtube, newest, oldest }
+
+void sortPlaylistVideos(
+  List<RecordData> videos,
+  List<RecordData> memberships,
+  String playlistId,
+  PlaylistOrder order,
+) {
+  if (order == PlaylistOrder.youtube) {
+    final positions = <String, int>{
+      for (final item in memberships.where(
+        (row) => row['playlist_id'] == playlistId,
+      ))
+        '${item['video_id']}': (item['position'] as num?)?.toInt() ?? 1 << 30,
+    };
+    videos.sort(
+      (a, b) => (positions['${a['id']}'] ?? 1 << 30).compareTo(
+        positions['${b['id']}'] ?? 1 << 30,
+      ),
+    );
+  } else {
+    videos.sort(
+      (a, b) => order == PlaylistOrder.newest
+          ? Store.uploadTime(b).compareTo(Store.uploadTime(a))
+          : Store.uploadTime(a).compareTo(Store.uploadTime(b)),
+    );
+  }
+}
+
+class SearchScreen extends StatefulWidget {
+  const SearchScreen({
+    super.key,
+    required this.store,
+    required this.selectedChannel,
+  });
+  final Store store;
+  final String? selectedChannel;
+  @override
+  State<SearchScreen> createState() => _SearchScreenState();
+}
+
+class _SearchScreenState extends State<SearchScreen> {
+  final query = TextEditingController();
+  bool allChannels = false;
+  @override
+  void dispose() {
+    query.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.store,
+    builder: (context, _) {
+      final text = query.text.trim().toLowerCase();
+      final channelId = allChannels ? null : widget.selectedChannel;
+      bool matches(String? value) =>
+          value?.toLowerCase().contains(text) ?? false;
+      final videos = widget.store.videos
+          .where(
+            (v) =>
+                (channelId == null || v['channel_id'] == channelId) &&
+                (matches(v['title']) || matches(v['description'])),
+          )
+          .toList();
+      final playlists = widget.store.playlists
+          .where(
+            (p) =>
+                (channelId == null || p['channel_id'] == channelId) &&
+                matches(p['title']),
+          )
+          .toList();
+      final quizzes = widget.store.quizzes
+          .where(
+            (q) =>
+                matches(q['title']) &&
+                widget.store.videos.any(
+                  (v) =>
+                      v['id'] == q['video_id'] &&
+                      (channelId == null || v['channel_id'] == channelId),
+                ),
+          )
+          .toList();
+      return Scaffold(
+        appBar: AppBar(title: const Text('Find something to learn')),
+        body: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: query,
+                      autofocus: true,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: 'Search videos, playlists and quizzes',
+                        labelText: 'Search learning content',
+                      ),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('All channels'),
+                      value: allChannels,
+                      onChanged: (value) => setState(() => allChannels = value),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: text.isEmpty
+                    ? const EmptyState(
+                        icon: Icons.search,
+                        title: 'What do you want to learn?',
+                        message: 'Search by video, playlist or quiz title.',
+                      )
+                    : videos.isEmpty && playlists.isEmpty && quizzes.isEmpty
+                    ? const EmptyState(
+                        icon: Icons.search_off,
+                        title: 'No matches yet',
+                        message: 'Try another word or search all channels.',
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        children: [
+                          if (videos.isNotEmpty) ...[
+                            Text(
+                              'Videos',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            ...videos.map(
+                              (v) => CompactVideoCard(
+                                video: v,
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => VideoScreen(
+                                      store: widget.store,
+                                      video: v,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (playlists.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              'Playlists',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            ...playlists.map(
+                              (p) => ListTile(
+                                leading: const Icon(Icons.playlist_play),
+                                title: Text('${p['title']}'),
+                                subtitle: Text(
+                                  '${widget.store.playlistVideos.where((pv) => pv['playlist_id'] == p['id']).length} videos',
+                                ),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => SearchPlaylistScreen(
+                                      store: widget.store,
+                                      playlist: p,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (quizzes.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              'Quizzes',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            ...quizzes.map(
+                              (q) => ListTile(
+                                leading: const Icon(Icons.quiz_outlined),
+                                title: Text('${q['title']}'),
+                                onTap: () {
+                                  final video = widget.store.videos
+                                      .where((v) => v['id'] == q['video_id'])
+                                      .firstOrNull;
+                                  if (video != null) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => VideoScreen(
+                                          store: widget.store,
+                                          video: video,
+                                          initialTab: 2,
+                                          openQuiz: q,
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class SearchPlaylistScreen extends StatelessWidget {
+  const SearchPlaylistScreen({
+    super.key,
+    required this.store,
+    required this.playlist,
+  });
+  final Store store;
+  final RecordData playlist;
+  @override
+  Widget build(BuildContext context) {
+    final videos = store.channelUploads(
+      playlist['channel_id'],
+      playlistId: playlist['id'],
+    );
+    sortPlaylistVideos(
+      videos,
+      store.playlistVideos,
+      playlist['id'],
+      PlaylistOrder.youtube,
+    );
+    return Scaffold(
+      appBar: AppBar(title: Text('${playlist['title']}')),
+      body: videos.isEmpty
+          ? const EmptyState(
+              icon: Icons.playlist_play,
+              title: 'This playlist is waiting for videos',
+              message: 'Published videos appear here when available.',
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: videos.length,
+              itemBuilder: (context, index) => CompactVideoCard(
+                video: videos[index],
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        VideoScreen(store: store, video: videos[index]),
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
 }
 
 /// Compact, keyboard-accessible rows with no fixed text height.
@@ -935,8 +1409,10 @@ class CompactVideoCard extends StatelessWidget {
                         const SizedBox(height: 6),
                         Text(
                           metadata,
-                          style: const TextStyle(
-                            color: Colors.white60,
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                             fontSize: 12,
                           ),
                         ),
@@ -1058,8 +1534,8 @@ class VideoCard extends StatelessWidget {
                       const SizedBox(height: 8),
                       Text(
                         'WATCH  ·  NOTES  ·  QUIZ',
-                        style: const TextStyle(
-                          color: Colors.white54,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontSize: 10,
                           letterSpacing: 1.2,
                         ),
@@ -1068,7 +1544,11 @@ class VideoCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const Icon(Icons.north_east_rounded, color: accent, size: 20),
+                Icon(
+                  Icons.north_east_rounded,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 20,
+                ),
               ],
             ),
           ),
@@ -1094,7 +1574,7 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: accent, size: 40),
+          Icon(icon, color: Theme.of(context).colorScheme.primary, size: 40),
           const SizedBox(height: 16),
           Text(
             title,
@@ -1105,7 +1585,9 @@ class EmptyState extends StatelessWidget {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white60),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -1272,16 +1754,22 @@ class _VideoScreenState extends State<VideoScreen> {
                       throw StateError('No app');
                     }
                   }),
-                  icon: const Icon(Icons.open_in_new, color: accent),
+                  icon: Icon(
+                    Icons.open_in_new,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
               ],
             ),
           ),
-          const Padding(
+          Padding(
             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 6),
             child: Text(
               'Player unavailable or embedding restricted? Use “Open in YouTube” above.',
-              style: TextStyle(fontSize: 11, color: Colors.white54),
+              style: TextStyle(
+                fontSize: 11,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
           const TabBar(
@@ -1301,9 +1789,9 @@ class _VideoScreenState extends State<VideoScreen> {
                     const SizedBox(height: 14),
                     Text(
                       widget.video['description'],
-                      style: const TextStyle(
+                      style: TextStyle(
                         height: 1.6,
-                        color: Colors.white70,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -1315,9 +1803,12 @@ class _VideoScreenState extends State<VideoScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'Keep the ideas that stick. Make a private note or test what you learned with a linked quiz.',
-                      style: TextStyle(height: 1.5, color: Colors.white60),
+                      style: TextStyle(
+                        height: 1.5,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -1358,9 +1849,9 @@ class _VideoScreenState extends State<VideoScreen> {
                           (q) => Card(
                             child: ListTile(
                               contentPadding: const EdgeInsets.all(16),
-                              leading: const Icon(
+                              leading: Icon(
                                 Icons.quiz_outlined,
-                                color: accent,
+                                color: Theme.of(context).colorScheme.primary,
                               ),
                               title: Text(q['title']),
                               subtitle: const Text(
@@ -1399,7 +1890,11 @@ class SignInPrompt extends StatelessWidget {
       padding: const EdgeInsets.all(28),
       child: Column(
         children: [
-          const Icon(Icons.lock_outline_rounded, size: 40, color: accent),
+          Icon(
+            Icons.lock_outline_rounded,
+            size: 40,
+            color: Theme.of(context).colorScheme.primary,
+          ),
           const SizedBox(height: 16),
           Text(
             message,
@@ -1410,7 +1905,9 @@ class SignInPrompt extends StatelessWidget {
           Text(
             detail,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white60),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 20),
           FilledButton(
@@ -1424,8 +1921,9 @@ class SignInPrompt extends StatelessWidget {
 }
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key, required this.store});
+  const AuthScreen({super.key, required this.store, this.onGuest});
   final Store store;
+  final VoidCallback? onGuest;
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
@@ -1471,11 +1969,12 @@ class _AuthScreenState extends State<AuthScreen> {
     });
     try {
       await action();
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(
-          () => message =
-              'Sign-in failed. Check your details, provider setup, and connection.',
+          () => message = error is StateError
+              ? error.message.toString()
+              : 'Sign-in failed. Check your details, provider setup, and connection.',
         );
       }
     } finally {
@@ -1501,9 +2000,12 @@ class _AuthScreenState extends State<AuthScreen> {
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'Your video, quiz, or note will be waiting right here after sign-in.',
-                style: TextStyle(color: Colors.white60, height: 1.5),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.5,
+                ),
               ),
               const SizedBox(height: 28),
 
@@ -1580,12 +2082,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   child: Text(
                     message!,
                     semanticsLabel: message,
-                    style: const TextStyle(color: accent),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ),
                 ),
               const SizedBox(height: 16),
               TextButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: widget.onGuest ?? () => Navigator.pop(context),
                 child: const Text('Keep browsing as a guest'),
               ),
             ],
@@ -1607,7 +2111,6 @@ class NotesPanel extends StatefulWidget {
 class _NotesPanelState extends State<NotesPanel> {
   late Future<List<RecordData>> rows;
   bool saving = false;
-  final drafts = <String, String>{};
   @override
   void initState() {
     super.initState();
@@ -1652,58 +2155,14 @@ class _NotesPanelState extends State<NotesPanel> {
 
   Future<void> edit([RecordData? note]) async {
     if (saving) return;
-    final draftKey = note?['id'] as String? ?? '_new';
-    final controller = TextEditingController(
-      text: drafts[draftKey] ?? note?['body'],
-    );
-    final body = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(note == null ? 'Capture an idea' : 'Edit your note'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 3,
-          maxLines: 8,
-          maxLength: 20000,
-          decoration: const InputDecoration(hintText: 'What stood out to you?'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (controller.text.trim().isNotEmpty) {
-                Navigator.pop(context, controller.text.trim());
-              }
-            },
-            child: const Text('Save note'),
-          ),
-        ],
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            NoteEditor(store: widget.store, video: widget.video, note: note),
       ),
     );
-    // The dialog owns a route animation; defer disposal until it has finished.
-    Future<void>.delayed(const Duration(seconds: 1), controller.dispose);
-    if (body != null && mounted) {
-      setState(() => saving = true);
-      try {
-        await widget.store.saveNote(widget.video, body, id: note?['id']);
-        drafts.remove(draftKey);
-        if (mounted) reload();
-      } catch (_) {
-        drafts[draftKey] = body;
-        if (mounted) {
-          notice(
-            context,
-            'Note not saved. Check your connection, then tap Add or Edit to retry your draft.',
-          );
-        }
-      } finally {
-        if (mounted) setState(() => saving = false);
-      }
-    }
+    if (mounted) reload();
   }
 
   @override
@@ -1714,10 +2173,12 @@ class _NotesPanelState extends State<NotesPanel> {
         padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: Row(
           children: [
-            const Expanded(
+            Expanded(
               child: Text(
                 'Private · Only you',
-                style: TextStyle(color: Colors.white54),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
             IconButton(
@@ -1728,7 +2189,7 @@ class _NotesPanelState extends State<NotesPanel> {
             FilledButton.icon(
               onPressed: saving ? null : edit,
               icon: const Icon(Icons.add),
-              label: const Text('Add note'),
+              label: const Text('New note'),
             ),
           ],
         ),
@@ -1803,6 +2264,299 @@ class _NotesPanelState extends State<NotesPanel> {
         ),
       ),
     ],
+  );
+}
+
+String newNoteId() {
+  final bytes = List<int>.generate(16, (_) => Random.secure().nextInt(256));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+}
+
+class NoteEditor extends StatefulWidget {
+  const NoteEditor({
+    super.key,
+    required this.store,
+    required this.video,
+    this.note,
+  });
+  final Store store;
+  final String video;
+  final RecordData? note;
+  @override
+  State<NoteEditor> createState() => _NoteEditorState();
+}
+
+class _NoteEditorState extends State<NoteEditor> {
+  late final controller = TextEditingController(
+    text: '${widget.note?['body'] ?? ''}',
+  );
+  late final noteId = widget.note?['id'] as String? ?? newNoteId();
+  late bool creating = widget.note == null;
+  Timer? timer;
+  Future<void>? activeSave;
+  bool dirty = false;
+  bool allowPop = false;
+  bool closing = false;
+  String status = 'Private · Only you';
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    controller.dispose();
+    super.dispose();
+  }
+
+  void changed() {
+    dirty = true;
+    setState(() => status = 'Unsaved changes');
+    timer?.cancel();
+    timer = Timer(const Duration(milliseconds: 800), () => save());
+  }
+
+  Future<void> save() async {
+    timer?.cancel();
+    if (activeSave != null) await activeSave;
+    if (!dirty || controller.text.trim().isEmpty) return;
+    final body = controller.text;
+    final task = () async {
+      setState(() => status = 'Saving…');
+      try {
+        await widget.store.saveNote(
+          widget.video,
+          body,
+          id: noteId,
+          create: creating,
+        );
+        creating = false;
+        dirty = controller.text != body;
+        if (mounted) {
+          setState(
+            () => status = dirty ? 'Unsaved changes' : 'Saved to your account',
+          );
+        }
+      } catch (_) {
+        dirty = true;
+        if (mounted) {
+          setState(
+            () => status = 'Could not save · Check your connection and retry',
+          );
+        }
+      }
+    }();
+    activeSave = task;
+    await task;
+    activeSave = null;
+    if (dirty && status == 'Unsaved changes' && mounted) {
+      timer = Timer(const Duration(milliseconds: 800), () => save());
+    }
+  }
+
+  Future<void> close() async {
+    if (closing) return;
+    closing = true;
+    await save();
+    if (!mounted) return;
+    if (dirty && controller.text.trim().isNotEmpty) {
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('This note is not saved'),
+          content: const Text('Retry saving or discard these changes?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Keep editing'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Discard changes'),
+            ),
+          ],
+        ),
+      );
+      if (discard != true || !mounted) {
+        closing = false;
+        return;
+      }
+    }
+    setState(() => allowPop = true);
+    Navigator.pop(context);
+  }
+
+  void checklist() {
+    final selection = controller.selection;
+    final offset = selection.isValid
+        ? selection.baseOffset
+        : controller.text.length;
+    final prefix =
+        offset <= 0 || controller.text.substring(0, offset).endsWith('\n')
+        ? '☐ '
+        : '\n☐ ';
+    controller.value = TextEditingValue(
+      text: controller.text.replaceRange(offset, offset, prefix),
+      selection: TextSelection.collapsed(offset: offset + prefix.length),
+    );
+    changed();
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: allowPop,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) close();
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Done editing',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: close,
+        ),
+        title: Text(widget.note == null ? 'New note' : 'Your note'),
+        actions: [
+          IconButton(
+            tooltip: 'Save now',
+            icon: const Icon(Icons.cloud_done_outlined),
+            onPressed: save,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.lock_outline, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: checklist,
+                    icon: const Icon(Icons.checklist),
+                    label: const Text('Checklist'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  autofocus: true,
+                  expands: true,
+                  minLines: null,
+                  maxLines: null,
+                  maxLength: 20000,
+                  textAlignVertical: TextAlignVertical.top,
+                  keyboardType: TextInputType.multiline,
+                  onChanged: (_) => changed(),
+                  decoration: const InputDecoration(
+                    labelText: 'Your private note',
+                    hintText: 'What stood out to you?',
+                    alignLabelWithHint: true,
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class AllNotesScreen extends StatefulWidget {
+  const AllNotesScreen({super.key, required this.store});
+  final Store store;
+  @override
+  State<AllNotesScreen> createState() => _AllNotesScreenState();
+}
+
+class _AllNotesScreenState extends State<AllNotesScreen> {
+  late Future<List<RecordData>> rows = widget.store.allNotes();
+  void reload() => setState(() => rows = widget.store.allNotes());
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      title: const Text('My notes'),
+      actions: [
+        IconButton(
+          tooltip: 'Refresh notes',
+          onPressed: reload,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
+    body: FutureBuilder<List<RecordData>>(
+      future: rows,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData && !snapshot.hasError) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) return ErrorPanel(onRetry: reload);
+        final notes = snapshot.data!;
+        if (notes.isEmpty) {
+          return const EmptyState(
+            icon: Icons.edit_note_outlined,
+            title: 'No notes yet',
+            message: 'Open a video and capture something you want to remember.',
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: notes.length,
+          itemBuilder: (context, index) {
+            final note = notes[index];
+            final video = widget.store.videos
+                .where((v) => v['id'] == note['video_id'])
+                .firstOrNull;
+            return Card(
+              child: ListTile(
+                title: Text(video?['title'] ?? 'Video note'),
+                subtitle: Text(
+                  '${note['body']}',
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: video == null
+                    ? null
+                    : () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => VideoScreen(
+                              store: widget.store,
+                              video: video,
+                              initialTab: 1,
+                            ),
+                          ),
+                        );
+                        reload();
+                      },
+              ),
+            );
+          },
+        );
+      },
+    ),
   );
 }
 
@@ -1930,6 +2684,19 @@ class _AccountScreenState extends State<AccountScreen> {
         padding: const EdgeInsets.all(20),
         children: [
           label('A PLACE FOR YOUR CURIOSITY'),
+          const AppearancePicker(),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.menu_book_outlined),
+            title: const Text('User guide'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (guideContext) =>
+                    UserGuide(onDone: () => Navigator.pop(guideContext)),
+              ),
+            ),
+          ),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.privacy_tip_outlined),
@@ -2090,11 +2857,13 @@ class _AccountScreenState extends State<AccountScreen> {
                   return ErrorPanel(onRetry: () => setState(() {}));
                 }
                 if (snapshot.data!.isEmpty) {
-                  return const Padding(
+                  return Padding(
                     padding: EdgeInsets.symmetric(vertical: 20),
                     child: Text(
                       'No scores yet. Find a quiz on a video to get started.',
-                      style: TextStyle(color: Colors.white60),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   );
                 }
@@ -2103,9 +2872,9 @@ class _AccountScreenState extends State<AccountScreen> {
                       .map(
                         (a) => Card(
                           child: ListTile(
-                            leading: const Icon(
+                            leading: Icon(
                               Icons.check_circle_outline,
-                              color: accent,
+                              color: Theme.of(context).colorScheme.primary,
                             ),
                             title: Text(
                               widget.store.quizzes
@@ -2118,8 +2887,8 @@ class _AccountScreenState extends State<AccountScreen> {
                             ),
                             trailing: Text(
                               '${a['score']} / ${a['total']}',
-                              style: const TextStyle(
-                                color: accent,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
                                 fontSize: 20,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -2133,9 +2902,13 @@ class _AccountScreenState extends State<AccountScreen> {
             ),
           ],
           const SizedBox(height: 32),
-          const Text(
+          Text(
             'CURLYmax 1.3\nVideos play through YouTube. Notes are private to your account. Quiz submissions are scored securely on the server.',
-            style: TextStyle(color: Colors.white38, height: 1.6, fontSize: 12),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              height: 1.6,
+              fontSize: 12,
+            ),
           ),
         ],
       ),

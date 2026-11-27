@@ -64,7 +64,7 @@ adb install -r build/app/outputs/flutter-apk/app-debug.apk
 
 The delivered test build is `../artifacts/CURLYmax-Studio.apk`. This debug-signed APK is for testing; configure private release signing before distribution. Android backups and cleartext traffic are disabled. Native owner sessions are held in memory and are not restored after the process ends; sign in again when needed. A browser OAuth round trip normally keeps the process alive; if Android terminates it, restart sign-in. Email/password sign-in needs no mobile redirect setup.
 
-For Google sign-in, add `com.curlymax.studio://login-callback/` to Supabase Authentication → URL Configuration → Redirect URLs. The existing Google provider uses the same Supabase callback. Do not add a service-role key or Firebase Admin credentials to this project. Configuration accepts only an HTTPS origin and a publishable key (or legacy anon key).
+For native Android Google sign-in, create a Google Android OAuth client for `com.curlymax.studio` with the certificate SHA-1 used to sign the Studio APK. Put the public Google **Web client ID** in ignored `dashboard/config.json` as `GOOGLE_WEB_CLIENT_ID`. The native account picker returns tokens to Supabase without a browser round trip. Email/password is also built into Studio. Web and macOS Google OAuth still use the browser and return through `http://localhost:7357` or `com.curlymax.studio://login-callback/`; keep those Supabase Auth redirect URLs. Never embed a Google client secret, service-role key or Firebase Admin credentials. Configuration accepts only public client settings.
 
 ## YouTube workspace and playlists
 
@@ -87,3 +87,25 @@ The app's own sign-in page is branded CURLYmax. The external Google page is cont
 A visible `<project-ref>.supabase.co` hostname may remain because it is the actual authentication server address. To brand that address, configure and activate a Supabase custom auth domain (a paid-plan add-on), prepare DNS and certificates, and add its exact `/auth/v1/callback` URL to the Google Web OAuth client's authorized redirect URIs before activation. Do not replace the backend URL with an unconfigured website domain or remove the existing callback prematurely. The Android app callback (`com.curlymax.app://login-callback/` or Studio's `com.curlymax.studio://login-callback/`) is a separate return destination.
 
 Official setup: https://supabase.com/docs/guides/auth/social-sign-in/auth-google and https://supabase.com/docs/guides/platform/custom-domains . An app rebuild alone cannot publish Google branding or replace the server hostname.
+
+## Startup error: public configuration missing
+
+Flutter does not automatically read `config.json`. Stop the unconfigured app and launch from the project root:
+
+```sh
+python3 dashboard/scripts/run.py --device macos
+# Android: replace DEVICE_ID with the result from flutter devices
+python3 dashboard/scripts/run.py --device DEVICE_ID
+# Browser (default):
+python3 dashboard/scripts/run.py
+```
+
+The launcher passes the ignored public configuration file to Flutter. Alternatively, from `dashboard/`, run `flutter run -d macos --dart-define-from-file=config.json`. Hot reload cannot add missing compile-time settings. Startup now distinguishes missing/invalid configuration from session-storage/authentication initialization failures without printing keys.
+
+## Browser and native Mac JSON import
+
+JSON import uses the same Flutter UI on web, macOS and Android. On desktop, select Quizzes and click the labeled **Import quiz JSON** button in the top bar. Mobile uses the upload icon.
+
+For the browser on a Mac: `python3 dashboard/scripts/run.py`, then open http://localhost:7357 . For a native Mac app: `python3 dashboard/scripts/run.py --device macos`. A native `macos/` runner is included with the Studio bundle ID, authentication return scheme and sandboxed outbound-network permission. Native compilation requires the full Xcode app, not just Command Line Tools. The latest local build stopped because full Xcode is not installed on this machine; native OAuth has not been physically verified. Install Xcode from Apple and select its developer directory before building. You can continue using the browser version meanwhile.
+
+After installing full Xcode, run `python3 dashboard/scripts/build_macos_pkg.py` from the repository root to build `CURLYmax Studio.app` and package `artifacts/CURLYmax-Studio-1.2.0.pkg`. The package is unsigned and intended for local installation. Public Mac distribution requires Developer ID signing and notarization. This machine currently has only Command Line Tools, so a working installer cannot be produced or tested here.

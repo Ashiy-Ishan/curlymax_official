@@ -2,7 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'store.dart';
 
-const _accent = Color(0xFFCEFF5E);
+Color _accent(BuildContext context) => Theme.of(context).colorScheme.primary;
 bool _reduceMotion(BuildContext context) =>
     MediaQuery.disableAnimationsOf(context) ||
     MediaQuery.accessibleNavigationOf(context);
@@ -114,10 +114,10 @@ class _QuizScreenState extends State<QuizScreen> {
         return ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            const Text(
+            Text(
               'TAKE YOUR TIME',
               style: TextStyle(
-                color: _accent,
+                color: _accent(context),
                 letterSpacing: 2,
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
@@ -136,7 +136,9 @@ class _QuizScreenState extends State<QuizScreen> {
               children: [
                 Text(
                   '${index + (feedback == null ? 0 : 1)} of ${rows.length} answered',
-                  style: const TextStyle(color: Colors.white54),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
                 Stack(
                   alignment: Alignment.topRight,
@@ -302,8 +304,8 @@ class PointsCounter extends StatelessWidget {
         curve: Curves.easeOutCubic,
         builder: (_, value, _) => Text(
           '${value.round()} pts',
-          style: const TextStyle(
-            color: _accent,
+          style: TextStyle(
+            color: _accent(context),
             fontSize: 24,
             fontWeight: FontWeight.w800,
           ),
@@ -321,7 +323,7 @@ class FloatingAward extends StatelessWidget {
   Widget build(BuildContext context) => ExcludeSemantics(
     child: IgnorePointer(
       child: reduced
-          ? Text(text, style: const TextStyle(color: _accent))
+          ? Text(text, style: TextStyle(color: _accent(context)))
           : TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: 1),
               duration: const Duration(milliseconds: 450),
@@ -334,8 +336,8 @@ class FloatingAward extends StatelessWidget {
               ),
               child: Text(
                 text,
-                style: const TextStyle(
-                  color: _accent,
+                style: TextStyle(
+                  color: _accent(context),
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -389,12 +391,12 @@ class _AnswerCardState extends State<AnswerCard>
   @override
   Widget build(BuildContext context) {
     final color = widget.correct
-        ? _accent
+        ? _accent(context)
         : widget.wrong
         ? Colors.orangeAccent
         : widget.selected
-        ? _accent
-        : Colors.white24;
+        ? _accent(context)
+        : Theme.of(context).colorScheme.outlineVariant;
     return AnimatedBuilder(
       animation: animation,
       builder: (_, _) {
@@ -428,7 +430,9 @@ class _AnswerCardState extends State<AnswerCard>
                     style: OutlinedButton.styleFrom(
                       alignment: Alignment.centerLeft,
                       padding: const EdgeInsets.all(16),
-                      disabledForegroundColor: Colors.white,
+                      disabledForegroundColor: Theme.of(
+                        context,
+                      ).colorScheme.onSurface,
                       side: BorderSide(
                         color: color,
                         width: widget.correct || widget.wrong ? 2 : 1,
@@ -447,7 +451,7 @@ class _AnswerCardState extends State<AnswerCard>
                                 width: 22,
                                 height: 22,
                                 child: CustomPaint(
-                                  painter: _CheckPainter(t, _accent),
+                                  painter: _CheckPainter(t, _accent(context)),
                                 ),
                               )
                             else
@@ -533,7 +537,7 @@ class ExplanationPanel extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               margin: const EdgeInsets.only(top: 8),
               decoration: BoxDecoration(
-                color: _accent.withValues(alpha: .07),
+                color: _accent(context).withValues(alpha: .07),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
@@ -593,11 +597,11 @@ class QuizCompletion extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.auto_awesome, size: 64, color: _accent),
+              Icon(Icons.auto_awesome, size: 64, color: _accent(context)),
               const SizedBox(height: 24),
-              const Text(
+              Text(
                 'CURIOSITY LOOKS GOOD ON YOU',
-                style: TextStyle(color: _accent, letterSpacing: 2),
+                style: TextStyle(color: _accent(context), letterSpacing: 2),
               ),
               const SizedBox(height: 20),
               Semantics(
@@ -641,7 +645,8 @@ class QuizCompletion extends StatelessWidget {
               child: TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0, end: 1),
                 duration: const Duration(milliseconds: 500),
-                builder: (_, t, _) => CustomPaint(painter: _ConfettiPainter(t)),
+                builder: (_, t, _) =>
+                    CustomPaint(painter: _ConfettiPainter(t, _accent(context))),
               ),
             ),
           ),
@@ -651,12 +656,13 @@ class QuizCompletion extends StatelessWidget {
 }
 
 class _ConfettiPainter extends CustomPainter {
-  _ConfettiPainter(this.t);
+  _ConfettiPainter(this.t, this.accent);
   final double t;
+  final Color accent;
   @override
   void paint(Canvas canvas, Size size) {
     if (t >= 1) return;
-    const colors = [_accent, Colors.orangeAccent, Colors.lightBlueAccent];
+    final colors = [accent, Colors.orangeAccent, Colors.lightBlueAccent];
     for (var i = 0; i < 24; i++) {
       final angle = math.pi * (i / 23);
       final x = size.width / 2 + math.cos(angle) * t * size.width * .45;
@@ -673,5 +679,6 @@ class _ConfettiPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ConfettiPainter old) => old.t != t;
+  bool shouldRepaint(_ConfettiPainter old) =>
+      old.t != t || old.accent != accent;
 }

@@ -1,10 +1,12 @@
 """Validate public client configuration before any build or network request."""
 import base64
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
-PUBLIC_FIELDS = {'SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY'}
+PUBLIC_FIELDS = {'SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY',
+                 'GOOGLE_WEB_CLIENT_ID'}
 APP_FIELDS = PUBLIC_FIELDS | {'FCM_ENABLED', 'FIREBASE_API_KEY', 'FIREBASE_APP_ID',
     'FIREBASE_SENDER_ID', 'FIREBASE_PROJECT_ID', 'PRIVACY_POLICY_URL',
     'ACCOUNT_DELETION_URL', 'SUPPORT_EMAIL'}
@@ -59,4 +61,9 @@ def load_public_config(path, *, app=True):
     for field in ('PRIVACY_POLICY_URL', 'ACCOUNT_DELETION_URL'):
         if field in config and not https_url(config[field]):
             raise ValueError('Policy and deletion links must be public HTTPS URLs.')
+    if 'GOOGLE_WEB_CLIENT_ID' in config and not re.fullmatch(
+        r'[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com',
+        config['GOOGLE_WEB_CLIENT_ID'],
+    ):
+        raise ValueError('GOOGLE_WEB_CLIENT_ID must be the public Google Web OAuth client ID.')
     return config

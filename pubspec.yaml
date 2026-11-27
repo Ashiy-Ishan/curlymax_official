@@ -1,13 +1,14 @@
 name: curlymax
 description: CURLYmax channel companion for Android.
 publish_to: none
-version: 1.0.0+7
+version: 1.0.0+8
 environment:
   sdk: '>=3.10.0 <4.0.0'
 dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.10.0
+  google_sign_in: ^7.2.0
   youtube_player_iframe: ^6.0.2
   url_launcher: ^6.3.2
   shared_preferences: ^2.5.3

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config.dart';
+import 'native_google_auth.dart';
 
 typedef RecordData = Map<String, dynamic>;
 
@@ -13,10 +14,12 @@ class Store extends ChangeNotifier {
     this.prefs, {
     SupabaseClient? client,
     this.backendUrl = AppConfig.supabaseUrl,
+    this.googleIdToken = nativeGoogleIdToken,
   }) : _client = client;
   final SharedPreferences prefs;
   final SupabaseClient? _client;
   final String backendUrl;
+  final Future<({String idToken, String accessToken})> Function() googleIdToken;
   SupabaseClient get db => _client ?? Supabase.instance.client;
   bool get signedIn => db.auth.currentUser != null;
   String get userLabel => db.auth.currentUser?.email ?? 'Viewer';
@@ -303,6 +306,15 @@ class Store extends ChangeNotifier {
   }
 
   Future<void> signInWithGoogle() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      final token = await googleIdToken();
+      await db.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: token.idToken,
+        accessToken: token.accessToken,
+      );
+      return;
+    }
     if (!await db.auth.signInWithOAuth(
       OAuthProvider.google,
       redirectTo: AppConfig.authRedirect,
@@ -371,17 +383,57 @@ class Store extends ChangeNotifier {
     return result;
   }
 
-  Future<void> saveNote(String video, String body, {String? id}) async {
+  Future<List<RecordData>> allNotes({int offset = 0}) async {
     _requireSignIn();
+    if (offset < 0) throw ArgumentError('Invalid note page.');
+    final identity = db.auth.currentUser!.id;
+    final result = List<RecordData>.from(
+      await db
+          .from('notes')
+          .select()
+          .eq('user_id', identity)
+          .order('updated_at', ascending: false)
+          .range(offset, offset + 99)
+          .timeout(const Duration(seconds: 20)),
+    );
+    if (disposed || db.auth.currentUser?.id != identity) {
+      throw StateError('Account changed. Reopen your private data.');
+    }
+    return result;
+  }
+
+  Future<String> saveNote(
+    String video,
+    String body, {
+    String? id,
+    bool create = false,
+  }) async {
+    _requireSignIn();
+    final identity = db.auth.currentUser!.id;
     if (body.trim().isEmpty || body.length > 20000) {
       throw ArgumentError('Enter a note of 1–20,000 characters.');
     }
-    if (id == null) {
-      await db
-          .from('notes')
-          .insert({'video_id': video, 'body': body.trim()})
-          .timeout(const Duration(seconds: 20));
-    } else {
+    if (id == null || create) {
+      try {
+        final saved = await db
+            .from('notes')
+            .insert({'id': ?id, 'video_id': video, 'body': body.trim()})
+            .select('id')
+            .single()
+            .timeout(const Duration(seconds: 20));
+        if (disposed || db.auth.currentUser?.id != identity) {
+          throw StateError('Account changed. Reopen your private data.');
+        }
+        return saved['id'] as String;
+      } on PostgrestException catch (error) {
+        // A timed-out insert can have succeeded; retry only the same owned ID.
+        if (error.code != '23505') rethrow;
+      }
+    }
+    if (disposed || db.auth.currentUser?.id != identity) {
+      throw StateError('Account changed. Reopen your private data.');
+    }
+    if (id != null) {
       final changed = await db
           .from('notes')
           .update({
@@ -390,6 +442,7 @@ class Store extends ChangeNotifier {
           })
           .eq('id', id)
           .eq('video_id', video)
+          .eq('user_id', identity)
           .select('id')
           .timeout(const Duration(seconds: 20));
       if (changed.isEmpty) {
@@ -398,6 +451,10 @@ class Store extends ChangeNotifier {
         );
       }
     }
+    if (disposed || db.auth.currentUser?.id != identity) {
+      throw StateError('Account changed. Reopen your private data.');
+    }
+    return id ?? (throw StateError('Note ID missing after save.'));
   }
 
   Future<void> deleteNote(String id) async {

@@ -41,6 +41,8 @@ void main() {
       expect(find.text('Who am I'), findsOneWidget);
       expect(find.text('viewer@example.test'), findsOneWidget);
       expect(find.text('Log out'), findsOneWidget);
+      await tester.ensureVisible(find.text('Clear all my data'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Clear all my data'));
       await tester.pumpAndSettle();
       expect(
@@ -54,6 +56,8 @@ void main() {
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(store.deletions, 0);
+      await tester.ensureVisible(find.text('Clear all my data'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Clear all my data'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'DELETE');

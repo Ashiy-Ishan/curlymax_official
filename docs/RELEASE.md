@@ -1,6 +1,6 @@
 # Android release guide
 
-The viewer release candidate is CURLYmax 1.4.0. Signed builds are in `artifacts/`. These are release candidates for testing, not a claim of Play approval or completed device validation.
+The viewer source is CURLYmax 1.0.0. Rebuild signed artifacts after any source change; files already in `artifacts/` may be older. Builds are release candidates for testing, not evidence of Play approval or completed device validation.
 
 ## Files to distribute
 
@@ -10,9 +10,11 @@ The viewer release candidate is CURLYmax 1.4.0. Signed builds are in `artifacts/
 - `CURLYmax-release.aab`: upload to Play Console, about 53 MiB. This is not directly installable.
 - `CURLYmax-source.zip`: sanitized source, rebuilt separately by the packaging script.
 
-The split APK version codes include ABI offsets (ARM64 is 2006); the bundle uses version code 6. Future Play uploads must use a higher bundle version code. Do not mix sideloaded ABI builds and Play upgrades without checking version codes and signing certificates.
+The bundle version code comes from `pubspec.yaml`; each subsequent Play upload must use a higher code. Split APKs have ABI offsets. Do not mix sideloaded ABI builds and Play upgrades without checking version codes and signing certificates.
 
 ## Build again
+
+Before building a release, add the public `GOOGLE_WEB_CLIENT_ID` to ignored `config/live.json`, create matching Google Android OAuth clients for the upload and Play signing certificates, and finish the Supabase Google provider setup in [SETUP.md](SETUP.md). The release builder now stops when the client ID is absent because the native Google button would fail. Firebase client settings, policy URLs and private upload signing must also be configured.
 
 ```sh
 python3 scripts/setup_signing.py  # first machine only; never replace an existing upload key
@@ -33,17 +35,15 @@ Never compile or commit Supabase service-role keys, database passwords, Google O
 
 ## Privacy and account deletion pages
 
-The static `website/` folder contains the developer identity supplied by the owner, privacy policy, support and account deletion instructions. The `.github/workflows/pages.yml` workflow publishes only that folder.
+The static `website/` folder contains the developer identity, app homepage, privacy policy, support and account deletion instructions. The `.github/workflows/pages.yml` workflow deploys that folder on `main` when website files change. The custom-domain homepage and privacy page returned HTTP 200 without a redirect on 27 November 2026:
 
-1. Review and push the prepared website and workflow to the public repository.
-2. In GitHub repository Settings → Pages, choose GitHub Actions as the source.
-3. Run Actions → Publish policy pages → Run workflow (use the actual workflow title shown in GitHub).
-4. Open these expected URLs and confirm they work without signing in:
-   - https://ashiy-ishan.github.io/curlymax_official/privacy.html
-   - https://ashiy-ishan.github.io/curlymax_official/delete-account.html
-5. If the repository/domain changes, change the public URL settings in `config/live.json` and rebuild.
+- https://curlymax.ashinshanaishan.me/
+- https://curlymax.ashinshanaishan.me/privacy.html
+- https://curlymax.ashinshanaishan.me/delete-account.html
 
-The app bundles an offline privacy-policy screen. Its deletion-request and support actions open an email draft to curlymax.dev@gmail.com; they do not automatically send mail or delete an account. The separate direct deletion action remains under Your account. Public URLs are still needed for the Play listing; publication has not been verified. Browser preview was unavailable in this environment; source and local HTTP checks do not replace visual QA. Do not submit a production release with broken policy links.
+The homepage uses the public GA4 `gtag.js` ID to measure visits; the privacy and deletion pages do not load analytics. The privacy policy discloses this. If the domain changes, update the public URL settings in ignored `config/live.json` and rebuild. The app also bundles an offline privacy-policy screen. Its deletion-request and support actions open an email draft to curlymax.dev@gmail.com; they do not automatically send mail or delete an account. The separate direct deletion action remains under Your account.
+
+For Google OAuth branding, verify the `ashinshanaishan.me` **Domain property** in Google Search Console using the same Google account that owns or edits the OAuth project. A root-domain verification covers its subdomains. A Google verification TXT record already exists at the root domain, but DNS alone cannot show which Google account owns it. Also add `https://curlymax.ashinshanaishan.me/` as a **URL-prefix property** to check the exact homepage; it should inherit verification from the root property. If needed, choose **Google Analytics** verification only if that account also has Editor access to GA4 stream `G-LHEX5KRY9N`; the `gtag.js` snippet is in the public homepage head. Confirm the property says **Verified owner**. In Google Auth Platform → Branding, set Authorized domain to `ashinshanaishan.me`, homepage to `https://curlymax.ashinshanaishan.me/`, and privacy policy to `https://curlymax.ashinshanaishan.me/privacy.html`. Then retry branding after its stated wait and reply to Google's verification email if one was sent. The homepage and privacy URLs should not redirect to the portfolio. Google documents [homepage ownership](https://support.google.com/cloud/answer/13807376), [Authorized domain checks](https://support.google.com/cloud/answer/15548748) and [Search Console verification methods](https://support.google.com/webmasters/answer/9008080).
 
 ## Play Console checklist
 
