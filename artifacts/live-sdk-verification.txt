@@ -1,5 +1,0 @@
-channels: SDK query succeeded, 1 visible row(s) in checked range
-sections: SDK query succeeded, 1 visible row(s) in checked range
-videos: SDK query succeeded, 0 visible row(s) in checked range
-quizzes: SDK query succeeded, 0 visible row(s) in checked range
-Realtime guest channel: subscribed successfully

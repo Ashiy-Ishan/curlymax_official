@@ -1,5 +1,0 @@
-00:00 +0: loading /Users/ashiyishan/ubuntu-work/git_clone/curlymax_official/test/widget_test.dart
-00:00 +0: Guest sees labeled catalog and latest video
-00:00 +1: Demo notes persist, edit, delete; scores retry and persist
-00:00 +2: Channel selector appears from catalog data and filters videos
-00:00 +3: All tests passed!

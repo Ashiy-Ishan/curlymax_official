@@ -1,30 +1,44 @@
+# Flutter and local build output
 .dart_tool/
 .packages
-build/
 .flutter-plugins*
+build/
+coverage/
+**/__pycache__/
+*.log
+*.apk
+*.aab
+*.pkg
+
+# Editor and machine state
+.idea/
+.vscode/
+*.iml
+.DS_Store
 android/local.properties
+dashboard/android/local.properties
 android/.gradle/
-android/key.properties
-*.jks
-*.keystore
+
+# Local credentials and public client configuration
 .env*
 !*.example
 config/live.json
-supabase/.temp/
-supabase/.branches/
-artifacts
-.DS_Store
-
-artifacts/*.apk
-artifacts/*.zip
 config/google-services.json
 config/*.local.json
+dashboard/config.json
 .signing/
-*.aab
+**/key.properties
+*.jks
+*.keystore
 *.pem
 *.p12
 *.pfx
-**/key.properties
-coverage/
-**/coverage/
-**/__pycache__/
+
+# Generated reports and local tooling state
+/artifacts/
+/graphify-out/
+supabase/.temp/
+supabase/.branches/
+
+# Unrelated local reference image
+/Master Linux ls Command with Flags.png

@@ -1,2 +1,0 @@
-PASS guest receives newly added channel through Realtime
-PASS guest catalog fetch after reconnect catches missed publication

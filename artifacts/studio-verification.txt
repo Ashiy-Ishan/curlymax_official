@@ -1,8 +1,0 @@
-Studio1.1.0+2 verification
-flutter analyze: No issues found
-flutter test:10 passed
-flutter build apk --debug --dart-define-from-file=config.json: succeeded
-Package com.curlymax.studio
-Atomic one-form draft quiz creation; 2..4 answers; explicit correct selection; optional-answer compaction/remapping; legacy6choices preserved.
-SHA256 3a120f7a13d203d643310f2575348af9b37172580672e8a4b869ab7956600d84
-Live owner form submission not exercised in this task; migration007 required.
